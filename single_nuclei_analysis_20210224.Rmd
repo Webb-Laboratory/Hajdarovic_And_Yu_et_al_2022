@@ -1,0 +1,1697 @@
+---
+title: "single_cell_analysis_of_aging_hypothalamus"
+author: "K.H. Hajdarovic"
+date: "2/22/2021"
+output: html_document
+---
+
+
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60), fig.width=7.5}
+knitr::opts_chunk$set(dev = 'pdf')
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Generating Hypo.Integrated Object// Quality Control
+
+Load in the packages.
+```{r load-packages, echo = FALSE, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(MAST)
+library(rmarkdown)
+library(knitr)
+library(ggrepel)
+library(viridis)
+library(cowplot)
+library(CCInx)
+
+```
+
+```{r make-theme, echo=FALSE}
+my_theme = theme(
+  axis.title.x = element_text(size = 16),
+  axis.text.x = element_text(size = 14),
+  axis.title.y = element_text(size = 16),
+  aspect.ratio=1)  
+```
+
+
+Load in the data. These files should be generated using 10x CellRanger software. The files are a gene x cell matrix. Seurat has a dedicated function for reading files generated with 10x software. 
+
+```{r load-10x}
+Aged_1 <- Read10X(data.dir = "KO1_resequence_filtered_feature_bc_matrix") 
+Aged_2 <- Read10X(data.dir = "KO3_filtered_feature_bc_matrix")
+Young_1 <- Read10X(data.dir = "KY1_filtered_feature_bc_matrix")
+Young_2 <- Read10X(data.dir = "KY3_resequence_filtered_feature_bc_matrix")
+```
+
+Initialize the Seurat object with the raw (non-normalized data). Use the min.cells to set the minimum number of cells that must express a gene in order for it to be read in. Use min.features to set the minimum number of features a cell must have in order to be read in. 
+
+```{r make-seurat-objects}
+Aged_1 <-CreateSeuratObject(counts = Aged_1, project = "Aged_1", min.cells = 3, min.features = 200)
+Aged_2 <-CreateSeuratObject(counts = Aged_2, project = "Aged_2", min.cells = 3, min.features = 200)
+Young_1 <-CreateSeuratObject(counts = Young_1, project = "Young_1", min.cells = 3, min.features = 200)
+Young_2 <-CreateSeuratObject(counts = Young_2, project = "Young_2", min.cells = 3, min.features = 200)
+```
+
+For each sample, add a variable that will be used for differential expression later. Here, the samples can either be young or aged.
+
+```{r add-age-variable}
+Aged_1$stim <-"Aged"   
+Aged_2$stim <-"Aged"
+Young_1$stim <-"Young"
+Young_2$stim <-"Young"
+```
+
+Add a variable that accounts for the percentage of mitochondrial genes read per cell using the PercentFeatureSet function
+
+```{r add-mito-variable}
+Aged_1[["percent.mt"]] <- PercentageFeatureSet(Aged_1, pattern = "^mt-")
+Aged_2[["percent.mt"]] <- PercentageFeatureSet(Aged_2, pattern = "^mt-")
+Young_1[["percent.mt"]] <- PercentageFeatureSet(Young_1, pattern = "^mt-")
+Young_2[["percent.mt"]] <- PercentageFeatureSet(Young_2, pattern = "^mt-")
+
+Aged_1[["percent.ribo"]] <- PercentageFeatureSet(Aged_1, pattern = "^Rp")
+Aged_2[["percent.ribo"]] <- PercentageFeatureSet(Aged_2, pattern = "^Rp")
+Young_1[["percent.ribo"]] <- PercentageFeatureSet(Young_1, pattern = "^Rp")
+Young_2[["percent.ribo"]] <- PercentageFeatureSet(Young_2, pattern = "^Rp")
+```
+
+Visualize the QC data
+
+```{r visualize-QC}
+g1<-VlnPlot(Aged_1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"),ncol = 4, pt.size = 0.1)
+g1
+g2<-VlnPlot(Aged_2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"),ncol = 4, pt.size = 0.2)
+g2
+g3<-VlnPlot(Young_1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"), ncol = 4, pt.size = 0.2)
+g3
+g4<-VlnPlot(Young_2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"),ncol = 4, pt.size = 0.2)
+g4
+
+```
+
+Subset the data to keep only cells with more than 200 and less than 3000 features, and less than 10% mitochondrial mapping
+
+```{r subset-cells-and-genes}
+Aged_1<- subset(Aged_1, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+Aged_2<- subset(Aged_2, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+Young_1<- subset(Young_1, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+Young_2<- subset(Young_2, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+```
+
+Integrate the datasets together to create one Seurat Object
+
+```{r integrate-objects, message=FALSE, warning=FALSE  }
+hypo.list<-c(Aged_1, Aged_2, Young_1, Young_2)
+for (i in 1:length(hypo.list)) {
+    hypo.list[[i]] <- NormalizeData(hypo.list[[i]], verbose = FALSE)
+    hypo.list[[i]] <- FindVariableFeatures(hypo.list[[i]], selection.method = "vst", nfeatures = 5000, verbose = FALSE)
+}
+
+hypo.anchors <- FindIntegrationAnchors(object.list = hypo.list, dims = 1:30)
+hypo.integrated <- IntegrateData(anchorset = hypo.anchors, dims = 1:30)
+
+hypo.integrated
+```
+
+
+Normalize the data, identify variable features, and scale the data. 
+
+```{r seurat-workflow-1 message=FALSE, warning=FALSE}
+
+DefaultAssay(hypo.integrated) <- "integrated"
+hypo.integrated <- ScaleData(hypo.integrated, verbose = FALSE)
+hypo.integrated <- RunPCA(hypo.integrated, npcs = 30, verbose = FALSE)
+ElbowPlot(hypo.integrated)
+hypo.integrated <- FindNeighbors(hypo.integrated, dims = 1:30)
+hypo.integrated <- FindClusters(hypo.integrated, resolution = 1.5)
+hypo.integrated <- RunUMAP(hypo.integrated, reduction = "pca", dims = 1:30)
+
+```
+
+
+Next, find markers for each cluster. 
+```{r find-markers-1 message=FALSE, warning=FALSE}
+DefaultAssay(hypo.integrated) <- "RNA" 
+hypo.integrated <- ScaleData(hypo.integrated, verbose = FALSE)
+
+hypo.markers <- FindAllMarkers(hypo.integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+topten<-hypo.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC) 
+#saveRDS(topten, "top.ten.markers.hypo.integrated.RDS")
+
+
+
+#topten<-readRDS("top.ten.markers.hypo.integrated.RDS")
+print(head(topten, n= 15))
+top3<-hypo.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_logFC)
+top3 <- top3 %>%  group_by(cluster) %>%  
+  dplyr::mutate(markers = paste0(gene, collapse = "/")) %>% dplyr::slice(1)  
+marker.names<-top3$markers
+current.cluster.ids <- as.character(0:(length(unique(Idents(hypo.integrated)))-1)) 
+new.cluster.ids <- marker.names
+Idents(hypo.integrated) <- plyr::mapvalues(Idents(hypo.integrated),
+      from = current.cluster.ids, to = new.cluster.ids)
+
+x<-as_tibble(current.cluster.ids)
+x$orig_cluster<-marker.names
+x<-full_join(y, x, by = "orig_cluster")
+x<-dplyr::select(x, ID, orig_cluster, "cluster" = "value")
+x
+
+x<-full_join(x, topten, by = "cluster")
+x
+
+write_csv(x, "Supplementary_Table_1_Cluster_Markers.csv")
+
+
+#saveRDS(hypo.integrated, "hypo.integrated.analyzed.RDS")
+#hypo.integrated<-readRDS("hypo.integrated.analyzed.RDS")
+```
+
+Next, lets break down the data into broad cluster categories. We look at expression of cell-type marker genes in each cluster, and use these to make a plot with broad cluster categories labeled
+```{r assign-IDs message=FALSE, warning=FALSE, eval=FALSE}
+
+Idents(hypo.integrated)
+clustavg<-AverageExpression(hypo.integrated)
+clustdf<-as.data.frame(clustavg$RNA)
+clustdf<-t(clustdf)
+clustdf<-as_tibble(clustdf, rownames = "cluster")
+head(clustdf)
+dim(clustdf)
+df2<- clustdf %>% dplyr::select("cluster","Agt",
+"C1qa","Ccdc153","Cldn11","Cldn5","Flt1","Fyn","Gja1","Olig1","Pdgfra","Rax","Slc6a13","Syt1") 
+df2$orig_cluster<-df2$cluster
+
+df2$cluster
+df2<- df2 %>% mutate(ID = ifelse(Syt1 > 3, "Neuron", "NN"))
+df2$ID<-str_replace(df2$ID,"NN", df2$cluster)
+df2$ID<-str_replace(df2$ID,"Atp1a2/Gm3764/Gpc5", "Astrocyte")
+df2$ID<-str_replace(df2$ID,"Vtn/Flt1/Slco1a4", "Pericyte/Endothelial Cell")
+df2$ID<-str_replace(df2$ID,"Gpc5/Slc4a4/Gm3764", "Astrocyte")
+df2$ID<-str_replace(df2$ID,"Itih3/Sparcl1/Apoe", "Astrocyte")
+df2$ID<-str_replace(df2$ID,"Col23a1/Nnat/Col25a1", "Tanycyte") #rax expression
+df2$ID<-str_replace(df2$ID,"Klk6/Prr5l/Apod", "Oligodendrocyte")
+df2$ID<-str_replace(df2$ID,"Pdgfra/Tnr/Xylt1", "OPC")
+df2$ID<-str_replace(df2$ID,"Mgp/Bnc2/Fbxl7", "Arachnoid Barrier Cell")
+df2$ID<-str_replace(df2$ID,"Apod/Prr5l/Plp1", "Oligodendrocyte")
+df2$ID<-str_replace(df2$ID,"Ranbp3l/Slc6a20a/Ptgds", "Vascular and Leptomeningeal Cell")
+df2$ID<-str_replace(df2$ID,"C1qa/C1qb/C1qc", "Microglia/Macrophage")
+df2$ID<-str_replace(df2$ID,"Plp1/Ptgds/Cldn11", "Oligodendrocyte")
+df2$ID<-str_replace(df2$ID,"1700007G11Rik/Dnah12/Spag16", "Ependymocyte")
+
+
+table(df2$ID)
+y<-dplyr::select(df2, ID, orig_cluster)
+
+Idents(hypo.integrated)<-plyr::mapvalues(Idents(hypo.integrated), from = df2$cluster, to = df2$ID)
+hypo.integrated$group<-Idents(hypo.integrated)
+
+table(Idents(hypo.integrated), hypo.integrated$stim)
+
+#reorder groupings
+levels(hypo.integrated) <- c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell")
+```
+
+## Save object
+
+```{r generate-obj}
+saveRDS(hypo.integrated, "hypo.integrated_20210223.RDS")
+hypo.integrated<-readRDS("hypo.integrated_20210223.RDS")
+
+```
+
+#Figure 1 code
+
+```{r read-integrated echo=FALSE}
+
+table(hypo.integrated$group)
+
+
+
+levels(hypo.integrated) <- c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell")
+
+DimPlot(hypo.integrated, reduction = "umap") + my_theme
+```
+
+
+
+
+Plot a heatmap
+```{r all-cells-heatmap, echo=FALSE}
+
+
+features<-read.csv("heatmap_markers_20201110.csv")
+features<-features$Marker
+features<-str_replace(features, " ", "")
+
+DefaultAssay(hypo.integrated) <- "RNA"
+hypo.integrated <- ScaleData(hypo.integrated, verbose = FALSE)
+# Single cell heatmap of gene expression
+
+library(viridis)
+
+#change the order of the groups
+
+
+#levels(x) <- c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell")
+
+
+DoHeatmap(subset(hypo.integrated, downsample = 500),  features = features, size = 3, label = F) + scale_fill_viridis(option = "inferno")
+```
+
+
+Show genes per cell type and featureplots for cell type markers. 
+```{r all-cells-QC, message=FALSE, warning=FALSE}
+
+#neuron marker 
+p1<-FeaturePlot(hypo.integrated, feature = "Syt1", cols = c("darkgray","darkorchid3")) + my_theme 
+
+#oligo marker 
+p2<-FeaturePlot(hypo.integrated, feature = "Plp1", cols = c("darkgray","darkorchid3")) + my_theme 
+p2
+
+#astrocyte marker (used in Ximerakis et al)
+p3<-FeaturePlot(hypo.integrated, feature = "Agt", cols = c("darkgray","darkorchid3")) + my_theme 
+p3
+
+#Microglia/Macrophage
+p4<-FeaturePlot(hypo.integrated, feature = "C1qa", cols = c("darkgray","darkorchid3")) + my_theme 
+
+
+plot_grid(p1,p2,p3,p4)
+```
+
+#Supp1
+```{r supp1, message=FALSE, warning=FALSE}
+
+ord<-c("Young_1", "Young_2", "Aged_1", "Aged_2")
+
+nuclei_count<-as.data.frame(table(hypo.integrated$orig.ident))
+nuclei_count$Var1<-factor(nuclei_count$Var1, levels =ord)
+p<-ggplot(data=nuclei_count, aes(x=Var1, y=Freq)) +
+  geom_bar(stat="identity")
+p+theme_bw()
+
+
+
+metadata<-hypo.integrated@meta.data
+metadata$group <- factor(metadata$group, levels =levels(hypo.integrated))
+
+#metadata
+
+ # notice the changed order of factor levels
+plot_UMIs_hypo <- 
+  metadata %>% 
+  ggplot(aes(x = group, y = nCount_RNA, fill = group)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("UMIs/cell") +
+  scale_y_continuous(limits = c(500, 7000), breaks = c( 500, 1000, 2000, 3000, 4000, 5000, 6000)) +
+  coord_flip()
+
+plot_UMIs_hypo
+
+plot_genes_hypo <- 
+  metadata %>% 
+  ggplot(aes(x = group, y = nFeature_RNA, fill = group)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("genes/cell") +
+  scale_y_continuous(limits = c(500, 7000), breaks = c( 500, 1000, 2000, 3000, 3500)) +
+  coord_flip()
+
+plot_grid(plot_UMIs_hypo, plot_genes_hypo, nrow=1)
+
+
+```
+
+
+
+#Figure 2
+#Downsample
+
+
+Read in data
+```{r load_data, echo=FALSE}
+
+DimPlot(hypo.integrated,  group.by = "stim", cols = c( "#D43D4F", "#25838E")) #+ my_theme
+
+```
+
+Because of a technical error during sample prep, this dataset contains more nuclei for the aged samples compared to the young samples. However, since we sequenced the smaller young sample with the larger samples, it is possible that that sample was sequenced at a greater read depth. Lets look into how many nuclei are in each group, and how many reads and features we have for each group.
+
+Show the how many cells are in each cluster per brain type
+```{r downsample, message=FALSE, warning=FALSE}
+
+tab<-as.data.frame(table(hypo.integrated$group, hypo.integrated$stim))
+
+
+
+tab$cell_type<-paste(tab$Var1, tab$Var2, sep = "_")
+
+bar<-ggplot(tab, aes(x=cell_type, y=Freq)) + 
+  geom_bar(stat = "identity")
+
+tab<-as_tibble(tab)
+
+tab<-mutate(tab, Var1=factor(Var1, levels=c("Arachnoid Barrier Cell", "Astrocyte","Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte", "Vascular and Leptomeningeal Cell"))) 
+
+bargroup<-ggplot(tab, aes(fill=Var2, y=Freq, x=Var1)) + 
+    geom_bar(position="dodge", stat="identity")
+bargroup + theme_bw()
+
+
+#get the numbers so I know how much to downsample by
+tab_num<-as.data.frame(table(hypo.integrated$group, hypo.integrated$stim))
+tab_num
+
+#get the cell barcode names in each group
+tab_cells<-as_tibble(FetchData(hypo.integrated, vars = c("ident", "stim")), rownames = "cell_ident")
+tab_cells %>% 
+  group_by(stim, ident)
+
+#set seed
+
+set.seed(10162020)
+
+neur_age_cells<-dplyr::filter(tab_cells, ident == "Neuron" & stim == "Aged")
+neur_age_cells<-neur_age_cells$cell_ident
+neur_age_cells<-sample(neur_age_cells, size=4950, replace =F)
+
+oligo_age_cells<-dplyr::filter(tab_cells, ident == "Oligodendrocyte" & stim == "Aged")
+oligo_age_cells<-oligo_age_cells$cell_ident
+oligo_age_cells<-sample(oligo_age_cells, size=895, replace =F)
+
+astro_age_cells<-dplyr::filter(tab_cells, ident == "Astrocyte" & stim == "Aged")
+astro_age_cells<-astro_age_cells$cell_ident
+astro_age_cells<-sample(astro_age_cells, size=895, replace =F)
+
+micro_age_cells<-dplyr::filter(tab_cells, ident == "Microglia/Macrophage" & stim == "Aged")
+micro_age_cells<-micro_age_cells$cell_ident
+micro_age_cells<-sample(micro_age_cells, size=227, replace =F)
+
+
+opc_age_cells<-dplyr::filter(tab_cells, ident == "OPC" & stim == "Aged")
+opc_age_cells<-opc_age_cells$cell_ident
+opc_age_cells<-sample(opc_age_cells, size=238, replace =F)
+
+tany_age_cells<-dplyr::filter(tab_cells, ident == "Tanycyte" & stim == "Aged")
+tany_age_cells<-tany_age_cells$cell_ident
+tany_age_cells<-sample(tany_age_cells, size=187, replace =F)
+
+#get all young cells +aged ABC, VLMC, ependy, peri
+tab_cells$cell_stim<-paste(tab_cells$ident, tab_cells$stim, sep = "_")
+
+downsample_cells<-dplyr::filter(tab_cells, cell_stim != "Neuron_Aged" & cell_stim !="Oligodendrocyte_Aged" & cell_stim !="Astrocyte_Aged" &cell_stim !="Microglia/Macrophage_Aged"&cell_stim !="OPC_Aged"&cell_stim !="Tanycyte_Aged")
+
+downsample_cells<-downsample_cells$cell_ident
+
+#add downsampled aged categories
+downsample_cells<-c(downsample_cells,neur_age_cells, oligo_age_cells,astro_age_cells, micro_age_cells,opc_age_cells,tany_age_cells)
+
+#now I can try to subset these cells from the original seurat object
+
+hypo.integrated[["cell_name"]] <- colnames(hypo.integrated)
+downsampled.hypo.integrated<-subset(x = hypo.integrated, cell_name %in% downsample_cells)
+
+downsampled.hypo.integrated
+
+DefaultAssay(object = downsampled.hypo.integrated) <- "RNA"
+downsampled.hypo.integrated <- NormalizeData(object = downsampled.hypo.integrated)
+downsampled.hypo.integrated <- FindVariableFeatures(object = downsampled.hypo.integrated, nfeatures = 5000)
+downsampled.hypo.integrated <- ScaleData(object = downsampled.hypo.integrated)
+downsampled.hypo.integrated <- RunPCA(object = downsampled.hypo.integrated)
+downsampled.hypo.integrated <- FindNeighbors(object = downsampled.hypo.integrated)
+downsampled.hypo.integrated <- FindClusters(object = downsampled.hypo.integrated)
+downsampled.hypo.integrated <- RunUMAP(object = downsampled.hypo.integrated, dims = 1:30)
+DimPlot(object = downsampled.hypo.integrated) 
+
+
+Idents(downsampled.hypo.integrated)<-downsampled.hypo.integrated$group
+
+#Idents(downsampled.hypo.integrated)
+
+tab2<-as.data.frame(table(downsampled.hypo.integrated$group, downsampled.hypo.integrated$stim))
+tab2
+
+tab2$cell_type<-paste(tab2$Var1, tab$Var2, sep = "_")
+tab2<-as_tibble(tab2)
+
+
+tab2<-mutate(tab2, Var1=factor(Var1, levels=c("Arachnoid Barrier Cell", "Astrocyte","Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte", "Vascular and Leptomeningeal Cell"))) 
+
+tab<-mutate(tab, Var1=factor(Var1, levels=c("Arachnoid Barrier Cell", "Astrocyte","Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte", "Vascular and Leptomeningeal Cell"))) 
+
+tab$Var2<-factor(tab$Var2, levels = c("Young", "Aged"))
+
+tab2$Var2<-factor(tab$Var2, levels = c("Young", "Aged"))
+
+bargroup2<-ggplot(tab2, aes(fill=Var2, y=Freq, x=Var1)) + 
+    geom_bar(position="dodge", stat="identity") + 
+   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+theme_bw()
+bargroup2 
+
+bargroup<-ggplot(tab, aes(fill=Var2, y=Freq, x=Var1)) + 
+    geom_bar(position="dodge", stat="identity") +
+   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+theme_bw()
+bargroup + theme_bw()
+
+plot_grid(bargroup, bargroup2, nrow = 2)
+
+
+DefaultAssay(downsampled.hypo.integrated) <- "RNA"
+downsampled.hypo.integrated <- ScaleData(downsampled.hypo.integrated, verbose = FALSE)
+
+Idents(downsampled.hypo.integrated) <- factor(Idents(downsampled.hypo.integrated) , levels = c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell"))
+
+#Idents(downsampled.hypo.integrated)
+
+saveRDS(downsampled.hypo.integrated, "downsampled.hypo.integrated.20210223.RDS")
+
+
+```
+
+##QC data before and after downsample
+Make plots similar to Hrvatin, Sinisa, et al. "Neurons that regulate mouse torpor."Nature(2020): 1-7.
+
+```{r hrvatin-plots, echo=FALSE}
+library(forcats)
+
+metadata <- data.frame(hypo.integrated@meta.data)
+levels(metadata$group)<-c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell")
+
+metadata$group <- factor(metadata$group, levels =c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell"))
+ # notice the changed order of factor levels
+
+plot_UMIs_vio_10groups = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nCount_RNA, fill = group)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("UMIs/cell") +
+  scale_y_continuous(limits = c(500, 7000), breaks = c( 500, 1000, 2000, 3000, 4000, 5000, 6000)) +
+  coord_flip()
+
+plot_genes_vio_10groups = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nFeature_RNA, fill = group)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("genes/cell") +
+  scale_y_continuous(limits = c(0, 3000), breaks = c(0, 1000, 2000, 3000)) +
+  coord_flip()
+
+plot_grid(plot_UMIs_vio_10groups, plot_genes_vio_10groups, ncol = 2)
+
+
+# color by stim (Aged vs Young)
+plot_UMIs_vio_2stims = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nCount_RNA, fill = stim)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("UMIs/cell") +
+  scale_y_continuous(limits = c(500, 7000), breaks = c( 500, 1000, 2000, 3000, 4000, 5000, 6000)) +
+  coord_flip()
+
+plot_genes_vio_2stims = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nFeature_RNA, fill = stim)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("genes/cell") +
+  scale_y_continuous(limits = c(0, 3000), breaks = c(0, 1000, 2000, 3000)) +
+  coord_flip()
+
+plot_grid(plot_UMIs_vio_2stims, plot_genes_vio_2stims, ncol = 2)
+
+##for downsampled data
+metadata <- data.frame(downsampled.hypo.integrated@meta.data)
+levels(metadata$group)<-c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell")
+
+metadata$group <- factor(metadata$group, levels =c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell"))
+ # notice the changed order of factor levels
+metadata$stim<- factor(metadata$stim, levels =c("Young", "Aged"))
+ # notice the changed order of factor levels
+
+plot_UMIs_vio_10groups = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nCount_RNA, fill = group)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("UMIs/cell") +
+  scale_y_continuous(limits = c(500, 7000), breaks = c( 500, 1000, 2000, 3000, 4000, 5000, 6000)) +
+  coord_flip()
+
+plot_genes_vio_10groups = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nFeature_RNA, fill = group)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("genes/cell") +
+  scale_y_continuous(limits = c(0, 3000), breaks = c(0, 1000, 2000, 3000)) +
+  coord_flip()
+
+plot_grid(plot_UMIs_vio_10groups, plot_genes_vio_10groups, ncol = 2)
+
+
+
+# color by stim (Aged vs Young)
+plot_UMIs_vio_2stims = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nCount_RNA, fill = stim)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("UMIs/cell") +
+  scale_y_continuous(limits = c(500, 7000), breaks = c( 500, 1000, 2000, 3000, 4000, 5000, 6000)) +
+  coord_flip()
+
+plot_genes_vio_2stims = 
+  metadata %>% 
+  ggplot(aes(x = group, y = nFeature_RNA, fill = stim)) + 
+  geom_violin(show.legend = TRUE) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("genes/cell") +
+  scale_y_continuous(limits = c(0, 3000), breaks = c(0, 1000, 2000, 3000)) +
+  coord_flip() 
+  
+
+
+plot_grid(plot_UMIs_vio_2stims, plot_genes_vio_2stims, ncol = 2) 
+```
+
+
+
+
+
+###Function perform DE using MAST
+```{r DE-mast-func, message=FALSE}
+
+do_mast <- function(de_obj, subset_name) {
+
+  
+subset_DE_obj<-subset(de_obj, idents=c(subset_name))
+table(Idents(subset_DE_obj))
+
+subset_DE_obj$celltype.stim<- paste(subset_name,subset_DE_obj$stim, sep = "_") #this sets a metadata column where cell names are the cell type identity plus whether they are aged or young
+
+Idents(subset_DE_obj) <- "celltype.stim" #this changes the idents of the object to the celltype.stim value we created in the line above this
+
+print(table(Idents(subset_DE_obj)))
+
+DefaultAssay(subset_DE_obj) <-"RNA"
+subset_DE_obj_MAST<- FindMarkers(subset_DE_obj, ident.1 = paste(subset_name, "Aged", sep = "_") , ident.2 = paste(subset_name, "Young", sep = "_"), verbose = FALSE, test.use = "MAST", only.pos = FALSE, logfc.threshold = 0.0001)
+
+
+return(subset_DE_obj_MAST)}
+
+```
+
+##DE bulk analysis
+```{r DE-bulk, message=FALSE}
+
+bulk<-downsampled.hypo.integrated
+Idents(bulk)<-bulk$stim
+
+
+table(Idents(bulk))
+
+
+DefaultAssay(bulk) <-"RNA"
+bulk_MAST<- FindMarkers(bulk, ident.1 = "Aged" , ident.2 = "Young", verbose = FALSE, test.use = "MAST", only.pos = FALSE, logfc.threshold = 0.0001)
+
+
+
+bulk_MAST$neg_log10_pval <- -log10(bulk_MAST$p_val)
+bulk_MAST$log_pval <- log(bulk_MAST$p_val)
+bulk_MAST<-as_tibble(bulk_MAST, rownames = "gene")
+
+#this labels as significant only genes with a FC >0.1 which is what was used in the Ximerakis paper 
+bulk_MAST<-bulk_MAST %>% mutate(label = ifelse(p_val_adj < 0.05 & abs(avg_logFC)>.1, "Sig", "NS"))
+table(bulk_MAST$label)
+
+bulk_MAST<-bulk_MAST %>% mutate(label_2 = ifelse(p_val_adj < 0.05 & (avg_logFC) >.1 & label == "Sig", "Up", ifelse(p_val_adj < 0.05 & (avg_logFC)< -.1 & label == "Sig", "Down", NA)))
+
+table(bulk_MAST$label_2)
+table(bulk_MAST$label)
+
+bulk_MAST$label
+
+write.csv(bulk_MAST, "Supplementary_Table_2_DE_Bulk.csv")
+
+
+bulk_volcano <- ggplot(bulk_MAST, aes(x=avg_logFC, y=neg_log10_pval)) +
+  labs( subtitle="MAST", y="-log10(p-value)", 
+       x="Average Log2 Fold Change") + 
+  theme(plot.title=element_text(size=10,hjust=0.5),  # title
+        plot.subtitle=element_text(size=8,hjust=0.5),  # subtitle
+        axis.title.x=element_text(size=8),  # X axis title
+        axis.title.y=element_text(size=8, vjust=.5), # Y axis title
+        axis.text.x=element_text(size=8, angle = 30),  # X axis text
+        axis.text.y=element_text(size=8)) +  # Y axis text 
+  # x axis tick mark labels
+  theme(axis.text.x= element_text(colour="black",size =8 )) +
+  # y axis tick mark labels
+  theme(axis.text.y = element_text(colour="black",size =8)) +
+  theme(legend.position="bottom") +
+ # ylim(-10, 150) +
+  geom_point(data=bulk_MAST[bulk_MAST$label== "NS",],color="gray41",size=1.5) +
+  geom_point(data=bulk_MAST[bulk_MAST$label != "NS",],color="mediumorchid3",size=1.5) + #make significant genes red 
+ geom_text_repel(aes(x=avg_logFC, y=neg_log10_pval, label = gene)
+,data = bulk_MAST[bulk_MAST$label != "NS",])
+
+bulk_volcano +theme_bw()
+
+```
+
+##DE for downsampled data 
+```{r DE-mast-newcode, message=FALSE}
+
+cell_names<-names(table(Idents(downsampled.hypo.integrated)))
+
+cell_names
+
+cell_DE_res<-list()
+for (i in seq_along(cell_names)) {
+  print(cell_names[[i]])
+  cell_type<-cell_names[[i]]
+  tmp<-do_mast(de_obj = downsampled.hypo.integrated, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  cell_DE_res[[i]]<-tmp
+  }
+
+
+saveRDS(cell_DE_res, "DE_res_all_cells.RDS")
+
+#bind data together
+cell_DE_res_merge<-bind_rows(cell_DE_res)
+cell_DE_res_merge<-group_by(cell_DE_res_merge, cell_type)
+
+
+
+
+
+write.csv(cell_DE_res_merge, "Supplementary_Table_3.csv")
+
+
+```
+
+
+#DE versus cell number
+```{r message=FALSE}
+
+
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, sig = ifelse(p_val_adj < 0.5 & avg_logFC > .1 | p_val_adj < 0.5 & avg_logFC < -.1, "Sig", "NS"))
+
+cell_DE_res_merge
+decounts<-dplyr::count(cell_DE_res_merge, sig)
+decounts<-dplyr::filter(decounts, sig == "Sig")
+decounts
+
+z<-as_tibble(unique(cell_DE_res_merge$cell_type))
+z<-dplyr::select(z,"cell_type" = "value" )
+z<-full_join(z, decounts, by = "cell_type")
+z<-dplyr::select(z, cell_type, "DE_gene_count" = "n")
+z
+
+
+q<-table(Idents(downsampled.hypo.integrated))
+names(dimnames(q))<-"cell_type"
+q<-as_tibble(q)
+q
+
+q<-full_join(z,q, by = "cell_type")
+
+
+q
+q<-q %>% mutate_if(is.numeric, ~replace(., is.na(.), 0))
+q<-dplyr::filter(q, n != 0 )
+q
+
+
+# Basic scatter plot
+ggplot(q, aes(x=n, y=DE_gene_count, label = cell_type)) + geom_point() + theme_bw() + geom_text_repel()
+
+ggplot(q, aes(x=n, y=DE_gene_count)) + 
+  geom_point(color='#2980B9', size = 4) + 
+  geom_smooth(method=lm, color='#2C3E50') + 
+  theme_bw()
+
+
+q.lm <- lm(DE_gene_count ~ n, data = q)
+summary(q.lm)
+
+```
+
+##DE Strip chart
+```{r DE-strp, message=FALSE}
+
+# Load the "scales" package
+require(scales)
+
+# Create vector with levels of object@ident
+cell_type <- levels(Idents(downsampled.hypo.integrated))
+
+# Create vector of default ggplot2 colors
+cols <- hue_pal()(length(cell_type))
+
+col_dat<-as_tibble(cbind(cols, cell_type))
+
+col_dat
+
+cell_DE_res_merge<-full_join(cell_DE_res_merge, col_dat, by = "cell_type")
+
+cell_DE_res_merge
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, FC=  ifelse(avg_logFC <= -.1 | avg_logFC >= .1 , TRUE, FALSE))
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, pval_yes=  ifelse(p_val_adj < 0.05 , TRUE, FALSE))
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, fillyn=  ifelse(FC== TRUE & pval_yes==TRUE, TRUE, FALSE))
+cell_DE_res_merge
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, col_use = ifelse(fillyn== TRUE, cols, "dark gray"))
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, updown = ifelse(p_val_adj < 0.5 & avg_logFC >=0.1, "Upregulated with age", ifelse(p_val_adj < 0.5 & avg_logFC <= -0.1, "Downregulated with age", "NS")))
+
+de_res_table<-table(cell_DE_res_merge$updown, cell_DE_res_merge$cell_type)
+de_res_table<-as.data.frame.matrix(de_res_table)
+de_res_table
+
+
+col_for_plot<-as.character(cell_DE_res_merge$col_use)
+table(col_for_plot)
+
+
+
+
+x<-unique(cell_DE_res_merge$cell_type)
+
+
+cell_DE_res_merge$cell_type <- factor(cell_DE_res_merge$cell_type, levels = x)
+
+table(cell_DE_res_merge$fillyn,cell_DE_res_merge$cell_type )
+
+
+
+
+strip<-ggplot(cell_DE_res_merge, aes(x = cell_type, y = avg_logFC)) +
+   geom_jitter(position = position_jitter(0.3), color = col_for_plot, alpha = 0.5)+
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+strip
+
+
+```
+
+##Coefficient of variation analysis
+
+```{r COV, message=FALSE, warning=FALSE}
+# CV = SD/Mean. The CV will give you the extent of variability in your gene expression dataset
+
+library(reshape2)
+
+
+
+
+#makes a matrix with cell names as colnames and gene as rownames
+ctx<-GetAssayData(downsampled.hypo.integrated, slot = "data", assay = "RNA")
+ctx<-t(ctx)
+
+dim(ctx)
+
+ctx<-as_tibble(ctx, rownames = "cell_name")
+ctx
+
+
+
+id<-FetchData(downsampled.hypo.integrated, vars = c("ident", "stim"), slot = "data")
+id<-as_tibble(id, rownames= "cell_name")
+#id
+id<-mutate(id, group= paste(ident, stim, sep = "_"))
+id
+
+ctx<-full_join(ctx, id, by = "cell_name")
+
+#ctx<-dplyr::select(ctx, cell_name, -ident, - stim)
+
+
+#gets coefficient of variation for each gene per group
+covfun<-function(x) {sd(x)/mean(x)}
+
+
+covres<-group_by(ctx, group) %>%
+summarise(across(where(is.numeric), ~ covfun(.x)))
+covres   
+
+
+meltcovres <- melt(covres,id.vars="group")
+meltcovres <-meltcovres  %>%
+  separate(group, c("cell_type", "stim"), "_")
+
+meltcovres$stim<-factor(meltcovres$stim, levels = c("Young", "Aged"))
+
+# grouped boxplot
+ggplot(meltcovres, aes(x=cell_type, y=value, fill=stim)) + 
+    geom_boxplot() + theme_bw() + scale_fill_manual(values=c("Young" = "#F57670", "Aged" = "#6185CD"))
+
+
+meltcovres
+
+library(rstatix)
+wilcox_res<-meltcovres %>%
+  group_by(cell_type) %>%
+  wilcox_test(value ~ stim) %>%
+  adjust_pvalue(method = "bonferroni") %>%
+  add_significance("p.adj")
+              
+
+wilcox_res
+
+meltcovres %>% 
+  gather(cell_type, value) %>%    # reshape data            
+  nest(-stim) %>%                    # for each group nest data
+  mutate(pval = map_dbl(data, ~wilcox.test(value ~ class, data = .)$p.value)) %>%  # get p value for wilcoxon test
+  select(-data)                       # remove data column
+
+
+
+
+```
+
+
+##GSEA all cells
+
+###Prep GSEA
+```{r prep_fgsea, echo=FALSE}
+library(fgsea)
+
+
+
+
+pathways.hallmark <- gmtPathways("h.all.v7.2.symbols.gmt")
+
+
+
+library(biomaRt)
+
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+#prep gsea, ordered by foldchange of genes
+
+
+run_gsea <- function(DE_dat, pathway1, cell_name) {
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = DE_dat$MGI.symbol , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+DE_dat$MGI.symbol<-as.character(DE_dat$MGI.symbol)
+DE_dat<-full_join(genesV2, DE_dat, by = "MGI.symbol")
+DE_dat<-dplyr::select(DE_dat, HGNC.symbol, avg_logFC)
+  res2 <- DE_dat %>% 
+  dplyr::select(HGNC.symbol, avg_logFC) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(HGNC.symbol) %>% 
+  summarize(stat=mean(avg_logFC))
+  res2<-arrange(res2, stat)
+  ranks <- deframe(res2)
+  head(ranks, 20)
+  daty<-as_tibble(fgsea(pathways=pathway1, stats=ranks, nperm=1000))
+  daty$cell_type<-cell_name
+  daty<-dplyr::filter(daty, padj < 0.1)
+  daty<-mutate(daty,leading_edge_count = lengths(daty$leadingEdge))
+  return(daty)
+}
+
+
+```
+
+
+##Hallmark GSEA
+```{r hallmark_gsea, message=FALSE, warning=FALSE}
+
+
+gsea_res_hallmark<-list()
+
+
+for (i in seq_along(cell_DE_res)) {
+  print(cell_DE_res[[i]])
+  cell_DE_res[[i]]$MGI.symbol<-cell_DE_res[[i]]$gene
+  cell_type<-cell_DE_res[[i]]$cell_type[1]
+ 
+  tmp<-run_gsea(cell_DE_res[[i]], pathways.hallmark, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  gsea_res_hallmark[[i]]<-tmp
+  }
+  
+
+gsea_res_hallmark
+cell_types<-c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell")
+
+cell_types<-as_tibble(cell_types)
+cell_types<-dplyr::select(cell_types, cell_type = value)
+
+cell_types
+
+#make giant dataframe of all reactome results
+gsea_res_hallmark_merge<-bind_rows(gsea_res_hallmark)
+
+
+gsea_res_hallmark_merge<-full_join(gsea_res_hallmark_merge, cell_types)
+
+
+
+#"complete"" the dataframe, this will put in NAs for cell_type/description combos that don't already exist
+gsea_res_hallmark_merge<-complete(gsea_res_hallmark_merge, pathway, cell_type)
+gsea_res_hallmark_merge
+
+#X: cell_type
+#Y: Description
+#Z: NES
+
+
+
+gsea_res_hallmark_merge$cell_type <- factor(gsea_res_hallmark_merge$cell_type, levels = c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell"))
+
+
+
+gsea_res_hallmark_merge$pathway<-str_replace(gsea_res_hallmark_merge$pathway, "HALLMARK_", "")
+gsea_res_hallmark_merge$pathway<-str_replace_all(gsea_res_hallmark_merge$pathway, "_", " ")
+gsea_res_hallmark_merge$pathway<-str_to_title(gsea_res_hallmark_merge$pathway)
+
+#gsea_res_hallmark_merge<-dplyr::filter(gsea_res_hallmark_merge, pathway != NA)
+
+
+gsea_res_hallmark_merge<-gsea_res_hallmark_merge %>% dplyr::filter(!is.na(pathway))
+
+#heatmap
+gsea_hallmark_heatmap <- ggplot(data = gsea_res_hallmark_merge, mapping = aes(x = pathway, y = cell_type, fill = NES)) +
+  geom_tile(colour="white",size=0.25) +
+  xlab(label = "Sample") +
+  scale_fill_viridis(option="magma", na.value = "grey90") +
+  coord_equal() +
+  theme(plot.background=element_blank()) 
+
+gsea_hallmark_heatmap+ theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+
+
+#Figure 4
+##Explore XIST result
+
+
+```{r xist_violin, message=FALSE, warning=FALSE}
+
+
+DefaultAssay(downsampled.hypo.integrated)<-"RNA"
+
+levels =c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell")
+
+
+# Relevel object@ident
+Idents(downsampled.hypo.integrated) <- factor(x = Idents(downsampled.hypo.integrated), levels = levels)
+downsampled.hypo.integrated$stim<-factor(downsampled.hypo.integrated$stim, levels = c("Young", "Aged"))
+
+VlnPlot(downsampled.hypo.integrated, features = "Xist", split.by = "stim",split.plot = TRUE, pt.size=0) +  scale_fill_manual(values=c("Young" = "#F57670", "Aged" = "#6185CD"))
+
+VlnPlot(downsampled.hypo.integrated, features = "Tsix", split.by = "stim",split.plot = TRUE, pt.size=0)+  scale_fill_manual(values=c("Young" = "#F57670", "Aged" = "#6185CD"))
+
+
+VlnPlot(downsampled.hypo.integrated, features = "Ftx", split.by = "stim",split.plot = TRUE, pt.size=0)+  scale_fill_manual(values=c("Young" = "#F57670", "Aged" = "#6185CD"))
+
+gene
+xic_res<-dplyr::filter(cell_DE_res_merge, gene == "Xist")
+xic_res
+
+xic_res<-dplyr::filter(cell_DE_res_merge, gene == "Ftx")
+xic_res
+
+xic_res<-dplyr::filter(cell_DE_res_merge, gene == "Tsix")
+xic_res
+
+```
+
+
+##plot qPCR
+```{r qPCRplot, message=FALSE, warning=FALSE}
+
+qpcr_all<-read.csv("qpcr_xist_data.csv")
+
+qpcr_all<-as_tibble(qpcr)
+qpcr<-dplyr::filter(qpcr_all, Sex == "Female")
+
+qpcr_all<-group_by(qpcr_all, Sex, Region, Age)
+
+qpcr_all<-mutate(qpcr_all, group_var = paste(Sex, Region, sep = "_"))
+qpcr_all
+
+qpcr_all<-group_by(qpcr_all, Age, group_var)
+
+library(rstatix)
+ttest_res_qpcr<-qpcr %>%
+  group_by(Region) %>%
+  t_test(Average ~ Age, paired = FALSE, alternative = "two.sided") %>%
+  adjust_pvalue(method = "bonferroni") %>%
+  add_significance("p.adj")
+
+ttest_res_qpcr
+
+
+
+qpcr_all$Age<-factor(qpcr_all$Age, levels = c("Young", "Old"))
+
+
+# grouped boxplot
+p1<-ggplot(qpcr_all, aes(x=group_var, y=Average, fill=Age)) + 
+    geom_boxplot() + 
+  scale_fill_manual(values=c("Young" = "#F57670", "Old" = "#6185CD")) + theme_bw()
+p1
+
+
+```
+
+##plot neuronal DE genes per chromosome
+```{r per_chrom, message=FALSE, warning=FALSE}
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl", host = "http://useast.ensembl.org/")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl", host = "http://useast.ensembl.org/")
+
+
+
+t2g<-getBM(attributes=c('ensembl_gene_id','external_gene_name', "chromosome_name",'start_position','end_position'), mart = mouse)
+
+
+
+t2g<-as_tibble(t2g)
+t2g<-dplyr::select(t2g,gene=external_gene_name, chromosome_name)
+t2g
+
+
+chromosome_counts<-full_join(cell_DE_res_merge, t2g, by = "gene")
+
+
+
+chromosome_counts<-chromosome_counts %>% filter(!is.na(cell_type))
+chroms_use<-c(1:19, "X")
+chromosome_counts<-chromosome_counts %>% filter(chromosome_name %in% chroms_use)
+
+chromosome_counts
+
+bulk_neurons<-dplyr::filter(chromosome_counts, cell_type == "Neuron")
+
+bulk_neurons
+
+bulk_neurons<-mutate(bulk_neurons, updown=  ifelse(avg_logFC <= -.1 & p_val_adj < 0.05, "downregulated with age", ifelse( avg_logFC >= .1 & p_val_adj < 0.05 , "upregulated with age", "NS")))
+
+bulk_neurons$chromosome_name
+table(bulk_neurons$updown)
+
+
+
+bulk_neurons<-mutate(bulk_neurons, chrom = ifelse(chromosome_name  == "X", "X chromosome", "Autosome"))
+
+
+
+count_dat<-bulk_neurons%>% dplyr::count(chrom, updown)
+count_dat
+count_dat$updown<-factor(count_dat$updown,levels = c("downregulated with age", "upregulated with age", "NS"))
+
+count_dat_auto<-dplyr::filter(count_dat, chrom== "Autosome")    
+count_dat_X<-dplyr::filter(count_dat, chrom== "X chromosome")  
+                           
+count_dat_auto
+count_dat
+
+p1<-ggplot(data=count_dat_auto, aes(x=chrom, y=n, fill=updown)) + 
+  geom_bar(position="dodge", stat="identity") +
+  scale_fill_manual(values = c("#A6BF86","#E49100","#5FABBD")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+                     panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+p2<-ggplot(data=count_dat_X, aes(x=chrom, y=n, fill=updown)) + 
+  geom_bar(position="dodge", stat="identity") +
+  scale_fill_manual(values = c("#A6BF86","#E49100","#5FABBD")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+                     panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+plot_grid(p1,p2)
+count_dat
+
+
+count_dat<-pivot_wider(count_dat, names_from = updown, values_from = n)
+
+count_dat
+
+
+name_use<-count_dat$chrom
+x<-t(count_dat[,3:5])
+x
+colnames(x)<-name_use
+x
+
+setseed(1234)
+
+y<-chisq.test(x)
+y
+y$stdres
+y$observed
+y$expected
+
+#standardized residuals over/under 1.96 are considered significant. 
+y$stdres
+y$residuals
+y$data.name
+```
+
+
+##plot X brain escapees 
+
+```{r per_chrom, message=FALSE, warning=FALSE}
+brain_escapee<-c("Syp",
+"Ddx3x",
+"Kdm6a",
+"Gdi1",
+"Tmem47",
+"Eif2s3x",
+"Xist",
+"Ftx",
+"Slc16a2",
+"5530601H04Rik",
+"Gprasp1",
+"Plp1",
+"Kdm5c",
+"Gpm6b")
+
+
+
+
+cell_DE_res_merge
+
+escape_res<-dplyr::filter(cell_DE_res_merge, gene %in% brain_escapee)
+
+escape_res<-mutate(escape_res, pval = ifelse(p_val_adj < 0.05 & FC == TRUE, "Significant", "NS"))
+escape_res_sig<-dplyr::filter(escape_res, pval == "Significant")
+escape_res_sig
+table(escape_res$pval)
+
+
+
+
+
+VlnPlot(downsampled.hypo.integrated, features = "Syp", split.by = "stim",split.plot = TRUE, pt.size=0)+  scale_fill_manual(values=c("Young" = "#F57670", "Aged" = "#6185CD"))
+
+```
+
+
+# Generating Hypo.Integrated Object, only neurons
+
+
+```{r seurat-workflow-neurons, message=FALSE, warning=FALSE}
+
+hypo.integrated<-readRDS("hypo.integrated_20210223.RDS")
+table(Idents(hypo.integrated))
+
+hypo.neurons<- subset(hypo.integrated, idents = c("Neuron"), invert= F)
+DefaultAssay(hypo.neurons) <- "integrated"
+hypo.neurons<- RunPCA(hypo.neurons, verbose = FALSE)
+ElbowPlot(hypo.neurons)
+hypo.neurons<- FindNeighbors(hypo.neurons, reduction = "pca", dims = 1:30)
+hypo.neurons<- FindClusters(hypo.neurons, resolution = .6) #low resolution
+hypo.neurons <- RunUMAP(hypo.neurons, dims = 1:20)
+DimPlot(hypo.neurons, reduction = "umap", label = F) +my_theme
+
+
+DefaultAssay(hypo.neurons) <- "RNA"
+hypo.neurons<-FindVariableFeatures(hypo.neurons)
+hypo.neurons<-ScaleData(hypo.neurons)
+
+
+hypo.markers.neuron<- FindAllMarkers(hypo.neurons, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+hypo.markers.neuron
+
+top2.neuron<-hypo.markers.neuron %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC) %>%  group_by(cluster) %>% 
+  mutate(markers = paste0(gene, collapse = "/")) %>% 
+  dplyr::slice(1) %>% dplyr::select(cluster, markers)
+
+Idents(hypo.neurons)
+new.cluster.ids <- top2.neuron$markers
+current.cluster.ids <- as.character(0:(length(unique(Idents(hypo.neurons)))-1))
+
+
+
+Idents(hypo.neurons) <- plyr::mapvalues(Idents(hypo.neurons), from = current.cluster.ids, to = new.cluster.ids) #name Idents with cluster markers
+
+
+
+
+Idents(hypo.neurons)<-as.factor(Idents(hypo.neurons))
+
+table(Idents(hypo.neurons), hypo.neurons$stim)
+FeaturePlot(hypo.neurons, features = "percent.mt", label = TRUE)
+FeaturePlot(hypo.neurons, features = "nCount_RNA", label = TRUE)
+FeaturePlot(hypo.neurons, features = "nFeature_RNA", label = TRUE)
+
+hypo.neurons<-subset(hypo.neurons, idents = c("Pmch/Oxt"), invert = TRUE)
+
+
+
+table(Idents(hypo.neurons), hypo.neurons$stim)
+
+hypo.neurons<-BuildClusterTree(
+  hypo.neurons,
+  assay = "RNA",
+  reorder = TRUE,
+  verbose = TRUE
+)
+
+
+table(Idents(hypo.neurons))
+
+x<-levels(Idents(hypo.neurons))
+x
+y<-c(1:31)
+y<-as.character(y)
+y
+z<-paste(y, x, sep = ". ")
+z
+
+hypo.neurons$subcluster<-Idents(hypo.neurons)
+
+hypo.neurons$subcluster<-plyr::mapvalues(hypo.neurons$subcluster, from = x, to = z)
+
+
+
+Idents(hypo.neurons)<-hypo.neurons$subcluster
+table(Idents(hypo.neurons))
+
+
+hypo.markers.neuron<-full_join(hypo.markers.neuron,top2.neuron, by = "cluster" )
+hypo.markers.neuron
+
+write.csv(hypo.markers.neuron, "Supplementary_Table_6.csv")
+
+
+saveRDS(hypo.neurons, "hypo.neurons.20210227.RDS")
+
+
+```
+#Figure 5
+##plot UMAP and clustertree
+```{r seurat-workflow-neurons, message=FALSE, warning=FALSE}
+p1<-DimPlot(hypo.neurons) + my_theme
+p1
+
+p2<-FeaturePlot(hypo.neurons, features = c("Gad1", "Slc17a6" )) + my_theme
+p2
+
+#PlotClusterTree
+data.tree <- Seurat::Tool(object = hypo.neurons, slot = "BuildClusterTree")
+data.tree
+ape::plot.phylo(x = data.tree, direction = "right")
+
+```
+
+#Plot a dotplot of all peptide genes
+```{r peptide_dotplot, message=FALSE}
+
+
+peptide_genes<-c("Adcyap1","Agrp","Avp","Bdnf", "Cartpt","Cck","Gal","Ghrh","Grp","Hcrt","Kiss1","Nms","Npy","Nts", "Oxt","Pdyn","Penk","Pmch","Pnoc","Pomc","Qrfp","Sst","Tac1","Tac2", "Trh","Vip", "Th")
+
+DefaultAssay(hypo.neurons)<-"RNA"
+
+
+
+DotPlot(hypo.neurons, features = peptide_genes)  + theme(axis.text.x = element_text(angle = 45, hjust = 1)) +scale_y_discrete(limits = rev(levels(Idents(hypo.neurons))))
+
+```
+
+
+
+
+#Figure 6 
+###Function perform DE using MAST
+
+```{r DE-mast-func, message=FALSE}
+
+do_mast <- function(de_obj, subset_name) {
+
+  
+subset_DE_obj<-subset(de_obj, idents=c(subset_name))
+table(Idents(subset_DE_obj))
+
+subset_DE_obj$celltype.stim<- paste(subset_name,subset_DE_obj$stim, sep = "_") #this sets a metadata column where cell names are the cell type identity plus whether they are aged or young
+
+Idents(subset_DE_obj) <- "celltype.stim" #this changes the idents of the object to the celltype.stim value we created in the line above this
+
+print(table(Idents(subset_DE_obj)))
+
+DefaultAssay(subset_DE_obj) <-"RNA"
+subset_DE_obj_MAST<- FindMarkers(subset_DE_obj, ident.1 = paste(subset_name, "Aged", sep = "_") , ident.2 = paste(subset_name, "Young", sep = "_"), verbose = FALSE, test.use = "MAST", only.pos = FALSE, logfc.threshold = 0.0001)
+
+
+return(subset_DE_obj_MAST)}
+
+```
+
+
+##Downsample hypo.neurons
+
+```{r downsample_neurons, message=FALSE, warning=FALSE}
+
+
+DimPlot(hypo.neurons,  group.by = "stim", cols = c( "#D43D4F", "#25838E")) + my_theme
+
+table(hypo.neurons$subcluster, hypo.neurons$stim)
+
+
+tab_neur<-as.data.frame(table(Idents(hypo.neurons), hypo.neurons$stim))
+
+tab_neur<-tab_neur %>%
+  pivot_wider(names_from = Var2, values_from = Freq)
+tab_neur
+
+tab_neur_filter<-dplyr::filter(tab_neur, Aged > 20 & Young > 20)
+tab_neur_filter
+
+tab_neur_filter$Min <- with(tab_neur_filter, pmin(Aged, Young)) 
+
+
+tab_neur_cells<-as_tibble(FetchData(hypo.neurons, vars = c("ident", "stim")), rownames = "cell_ident")
+tab_neur_cells %>% 
+  group_by(stim, ident)
+
+
+
+
+
+cellsample<-as.character(tab_neur_filter$Var1)
+#tab_neur_cells$cell_stim<-paste(tab_neur_cells$)
+
+set.seed(10162020)
+
+
+
+aged_downsample_list<-list()
+for (i in seq_along(cellsample)) {
+  print(cellsample[[i]]) 
+  cell_type<-cellsample[[i]]
+  cell_number<-dplyr::filter(tab_neur_filter, Var1 == cell_type)
+  cell_number<-cell_number$Min
+  tmp<-dplyr::filter(tab_neur_cells, ident == cell_type & stim == "Aged")
+  tmp<-tmp$cell_ident #keep only the cell name
+  tmp<-sample(tmp, size=cell_number, replace =F)
+  aged_downsample_list[[i]]<-tmp
+  }
+
+
+
+young_downsample_list<-list()
+for (i in seq_along(cellsample)) {
+  print(cellsample[[i]]) 
+  cell_type<-cellsample[[i]]
+  cell_number<-dplyr::filter(tab_neur_filter, Var1 == cell_type)
+  cell_number<-cell_number$Min
+  tmp<-dplyr::filter(tab_neur_cells, ident == cell_type & stim == "Young")
+  tmp<-tmp$cell_ident #keep only the cell name
+  tmp<-sample(tmp, size=cell_number, replace =F)
+  young_downsample_list[[i]]<-tmp
+  }
+
+young_downsample_list<- do.call(c, young_downsample_list)
+aged_downsample_list<- do.call(c, aged_downsample_list)
+
+all_cells_use<-c(aged_downsample_list, young_downsample_list)
+
+
+
+hypo.neurons[["cell_name"]] <- colnames(hypo.neurons)
+downsampled.hypo.neurons<-subset(x = hypo.neurons, cell_name %in% all_cells_use)
+
+downsampled.hypo.neurons
+
+
+table(Idents(downsampled.hypo.neurons))
+Idents(downsampled.hypo.neurons)
+saveRDS(downsampled.hypo.neurons, "downsampled.hypo.neurons.20210224.RDS")
+
+#readRDS("downsampled.hypo.neurons.20210224.RDS")
+
+```
+
+##DE neurons
+
+```{r perform_de_all_celltype, message=FALSE, warning=FALSE}
+
+
+neuro_names<-names(table(Idents(downsampled.hypo.neurons)))
+neuro_names
+
+
+
+
+neuro_res<-list()
+for (i in seq_along(neuro_names)) {
+  print(neuro_names[[i]])
+  cell_type<-neuro_names[[i]]
+  tmp<-do_mast(de_obj = downsampled.hypo.neurons, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  neuro_res[[i]]<-tmp
+  }
+  
+
+neuro.res.merge<-bind_rows(neuro_res)
+
+neuro.res.merge
+
+saveRDS(neuro.res.merge, "neuron_DE_results_20201221.RDS")
+
+write.csv(neuro.res.merge, "Supplementary_Table_7.csv")
+
+# Load the "scales" package
+require(scales)
+
+# Create vector with levels of object@ident
+cell_type <- levels(Idents(hypo.neurons))
+cell_type
+# Create vector of default ggplot2 colors
+cols <- hue_pal()(length(cell_type))
+
+col_dat<-as_tibble(cbind(cols, cell_type))
+
+
+
+neuro.res.merge<-full_join(neuro.res.merge, col_dat, by = "cell_type")
+
+neuro.res.merge<-mutate(neuro.res.merge, FC=  ifelse(avg_logFC <= -.1 | avg_logFC >= .1 , TRUE, FALSE))
+
+neuro.res.merge<-mutate(neuro.res.merge, pval_yes=  ifelse(p_val_adj < 0.05 , TRUE, FALSE))
+
+neuro.res.merge<-mutate(neuro.res.merge, fillyn=  ifelse(FC== TRUE & pval_yes==TRUE, TRUE, FALSE))
+neuro.res.merge
+
+neuro.res.merge<-mutate(neuro.res.merge, col_use = ifelse(fillyn== TRUE, cols, "dark gray"))
+
+
+table(neuro.res.merge$cell_type)
+
+
+
+
+x<-unique(neuro.res.merge$cell_type)
+
+
+neuro.res.merge$cell_type <- factor(neuro.res.merge$cell_type, levels = x)
+
+table(neuro.res.merge$cell_type)
+neuro.res.merge$cell_type
+
+neuro.res.plot<-dplyr::filter(neuro.res.merge, cell_type != "3. Tac2/Tcf4"& cell_type != "5. Galntl6/Il1rapl2"& cell_type != "7. 1700042O10Rik/Ddc" & cell_type != "9. Hdc/Slc16a10" & cell_type != "31. Tac1/Sgcd")
+
+
+col_for_plot<-as.character(neuro.res.plot$col_use)
+
+strip<-ggplot(neuro.res.plot, aes(x = cell_type, y = avg_logFC)) +
+   #geom_jitter(position = position_jitter(0.3), color = col_for_plot, alpha = 0.5)+
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=.5
+                                   )) + 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+strip
+
+ggsave(
+  "boop2.pdf",
+  plot = last_plot(),
+  device = NULL,
+  path = NULL,
+  scale = 1,
+  dpi = 300,
+  limitsize = TRUE
+)
+
+
+
+
+
+
+
+
+
+
+neuro.res.merge<-mutate(neuro.res.merge, updown = ifelse(avg_logFC <= -.1 & p_val_adj < 0.05, "downregulated in age", ifelse(avg_logFC >= .1 & p_val_adj < 0.05, "upregulated in age", "NS")))
+
+
+neuro.res.merge<-group_by(neuro.res.merge, cell_type)
+de_counts<-dplyr::count(neuro.res.merge,updown)
+de_counts
+```
+
+##Hallmark GSEA neurons
+
+```{r neuron_GSEA_func, message=FALSE}
+
+
+#prep gsea, ordered by foldchange of genes
+run_gsea <- function(DE_datx, pathway1, cell_name) {
+  
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = DE_datx$MGI.symbol , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+DE_datx$MGI.symbol
+DE_datx<-full_join(genesV2, DE_datx, by = "MGI.symbol")
+DE_datx<-dplyr::select(DE_datx, HGNC.symbol, avg_logFC)
+  res2 <- DE_datx %>% 
+  dplyr::select(HGNC.symbol, avg_logFC) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(HGNC.symbol) %>% 
+  summarize(stat=mean(avg_logFC))
+  res2<-arrange(res2, stat)
+  ranks <- deframe(res2)
+  head(ranks, 20)
+  daty<-as_tibble(fgsea(pathways=pathway1, stats=ranks, nperm=1000))
+  daty$cell_type<-cell_name
+  daty<-dplyr::filter(daty, padj < 0.1)
+  daty<-mutate(daty,leading_edge_count = lengths(daty$leadingEdge))
+  return(daty)
+}
+
+
+
+neuro_names<-unique(neuro.res.merge$cell_type)
+
+neuro_names<-neuro_names[1:26]
+  
+neuro_names<-as.character(neuro_names)
+
+
+
+library(biomaRt)
+
+neuro_res_hallmark<-list()
+for (i in seq_along(neuro_res)) {
+  print(neuro_res[[i]])
+  neuro_res[[i]]$MGI.symbol<-neuro_res[[i]]$gene
+  cell_type<-neuro_res[[i]]$cell_type[1]
+  tmp<-run_gsea(neuro_res[[i]], pathways.hallmark, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  neuro_res_hallmark[[i]]<-tmp}
+
+
+ 
+                     
+
+neuro_names<-as_tibble(neuro_names)
+colnames(neuro_names)<-"cell_type"
+neuro_names$x<-"x"
+
+neuro_names
+
+  
+
+#make giant dataframe of all reactome results
+neuro_res_hallmark_merge<-bind_rows(neuro_res_hallmark)
+neuro_res_hallmark_merge$pathway
+neuro_res_hallmark_merge<-full_join(neuro_res_hallmark_merge, neuro_names)
+
+unique(neuro_res_hallmark_merge$cell_type)
+
+
+
+
+#"complete"" the dataframe, this will put in NAs for cell_type/description combos that don't already exist
+neuro_res_hallmark_merge<-complete(neuro_res_hallmark_merge, pathway, cell_type)
+neuro_res_hallmark_merge
+
+#X: cell_type
+#Y: Description
+#Z: NES
+
+
+
+x<-neuro_names$cell_type
+x
+neuro_res_hallmark_merge$cell_type <- factor(neuro_res_hallmark_merge$cell_type, levels = rev(x))
+
+
+
+neuro_res_hallmark_merge$pathway<-str_replace(neuro_res_hallmark_merge$pathway, "HALLMARK_", "")
+neuro_res_hallmark_merge$pathway<-str_replace_all(neuro_res_hallmark_merge$pathway, "_", " ")
+neuro_res_hallmark_merge$pathway<-str_to_title(neuro_res_hallmark_merge$pathway)
+
+
+
+neuro_res_hallmark_merge<-neuro_res_hallmark_merge %>% filter(!is.na(pathway))
+
+#heatmap
+neuron_hallmark_heatmap <- ggplot(data = neuro_res_hallmark_merge, mapping = aes(x = pathway, y = cell_type, fill = NES)) +
+  geom_tile(colour="white") +
+  xlab(label = "Sample") +
+  scale_fill_viridis(option="magma", na.value = "grey90") +
+  coord_equal() +
+  theme(plot.background=element_blank()) 
+
+neuron_hallmark_heatmap
+neuron_hallmark_heatmap + theme(axis.text.x=element_text(angle=45, hjust=1))
+```
