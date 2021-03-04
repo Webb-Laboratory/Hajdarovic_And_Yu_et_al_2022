@@ -478,7 +478,7 @@ Idents(downsampled.hypo.integrated) <- factor(Idents(downsampled.hypo.integrated
 
 saveRDS(downsampled.hypo.integrated, "downsampled.hypo.integrated.20210223.RDS")
 
-
+downsampled.hypo.integrated<-readRDS( "downsampled.hypo.integrated.20210223.RDS")
 ```
 
 ##QC data before and after downsample
@@ -728,7 +728,7 @@ cell_DE_res_merge<-group_by(cell_DE_res_merge, cell_type)
 
 write.csv(cell_DE_res_merge, "Supplementary_Table_3.csv")
 
-
+saveRDS(cell_DE_res_merge, "cell_DE_res_merge_20210303.RDS")
 ```
 
 
@@ -776,6 +776,8 @@ ggplot(q, aes(x=n, y=DE_gene_count)) +
 
 q.lm <- lm(DE_gene_count ~ n, data = q)
 summary(q.lm)
+
+
 
 ```
 
@@ -1016,7 +1018,7 @@ gsea_res_hallmark_merge$pathway<-str_replace(gsea_res_hallmark_merge$pathway, "H
 gsea_res_hallmark_merge$pathway<-str_replace_all(gsea_res_hallmark_merge$pathway, "_", " ")
 gsea_res_hallmark_merge$pathway<-str_to_title(gsea_res_hallmark_merge$pathway)
 
-#gsea_res_hallmark_merge<-dplyr::filter(gsea_res_hallmark_merge, pathway != NA)
+
 
 
 gsea_res_hallmark_merge<-gsea_res_hallmark_merge %>% dplyr::filter(!is.na(pathway))
@@ -1160,11 +1162,15 @@ count_dat_X<-dplyr::filter(count_dat, chrom== "X chromosome")
 count_dat_auto
 count_dat
 
-p1<-ggplot(data=count_dat_auto, aes(x=chrom, y=n, fill=updown)) + 
+p1<-ggplot(data=count_dat, aes(x=chrom, y=n, fill=updown)) + 
   geom_bar(position="dodge", stat="identity") +
   scale_fill_manual(values = c("#A6BF86","#E49100","#5FABBD")) +
   theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
                      panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+p1
+
+count_dat
 
 p2<-ggplot(data=count_dat_X, aes(x=chrom, y=n, fill=updown)) + 
   geom_bar(position="dodge", stat="identity") +
@@ -1199,6 +1205,8 @@ y$expected
 y$stdres
 y$residuals
 y$data.name
+
+y
 ```
 
 
@@ -1271,6 +1279,14 @@ hypo.markers.neuron
 top2.neuron<-hypo.markers.neuron %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC) %>%  group_by(cluster) %>% 
   mutate(markers = paste0(gene, collapse = "/")) %>% 
   dplyr::slice(1) %>% dplyr::select(cluster, markers)
+top2.neuron
+
+
+
+hypo.markers.neuron<-full_join(hypo.markers.neuron,top2.neuron, by = "cluster" )
+hypo.markers.neuron
+
+
 
 Idents(hypo.neurons)
 new.cluster.ids <- top2.neuron$markers
@@ -1308,7 +1324,7 @@ table(Idents(hypo.neurons))
 
 x<-levels(Idents(hypo.neurons))
 x
-y<-c(1:31)
+y<-c(1:34)
 y<-as.character(y)
 y
 z<-paste(y, x, sep = ". ")
@@ -1324,14 +1340,19 @@ Idents(hypo.neurons)<-hypo.neurons$subcluster
 table(Idents(hypo.neurons))
 
 
-hypo.markers.neuron<-full_join(hypo.markers.neuron,top2.neuron, by = "cluster" )
-hypo.markers.neuron
+
 
 write.csv(hypo.markers.neuron, "Supplementary_Table_6.csv")
 
 
-saveRDS(hypo.neurons, "hypo.neurons.20210227.RDS")
 
+hypo.markers.neuron
+
+saveRDS(hypo.neurons, "hypo.neurons.20210227.RDS")
+#hypo.neurons<-readRDS( "hypo.neurons.20210227.RDS")
+
+
+table(Idents(hypo.neurons))
 
 ```
 #Figure 5
@@ -1356,11 +1377,16 @@ ape::plot.phylo(x = data.tree, direction = "right")
 
 peptide_genes<-c("Adcyap1","Agrp","Avp","Bdnf", "Cartpt","Cck","Gal","Ghrh","Grp","Hcrt","Kiss1","Nms","Npy","Nts", "Oxt","Pdyn","Penk","Pmch","Pnoc","Pomc","Qrfp","Sst","Tac1","Tac2", "Trh","Vip", "Th")
 
+
+
 DefaultAssay(hypo.neurons)<-"RNA"
 
 
 
 DotPlot(hypo.neurons, features = peptide_genes)  + theme(axis.text.x = element_text(angle = 45, hjust = 1)) +scale_y_discrete(limits = rev(levels(Idents(hypo.neurons))))
+
+
+
 
 ```
 
@@ -1534,7 +1560,7 @@ neuro.res.merge<-mutate(neuro.res.merge, col_use = ifelse(fillyn== TRUE, cols, "
 
 table(neuro.res.merge$cell_type)
 
-
+x
 
 
 x<-unique(neuro.res.merge$cell_type)
@@ -1545,13 +1571,13 @@ neuro.res.merge$cell_type <- factor(neuro.res.merge$cell_type, levels = x)
 table(neuro.res.merge$cell_type)
 neuro.res.merge$cell_type
 
-neuro.res.plot<-dplyr::filter(neuro.res.merge, cell_type != "3. Tac2/Tcf4"& cell_type != "5. Galntl6/Il1rapl2"& cell_type != "7. 1700042O10Rik/Ddc" & cell_type != "9. Hdc/Slc16a10" & cell_type != "31. Tac1/Sgcd")
+neuro.res.plot<-dplyr::filter(neuro.res.merge,cell_type != "2. Pmch/Cartpt" & cell_type !="5. Tac1/Sgcd" & cell_type !="8. Tac2/Adarb2" & cell_type !="19. Gal/Fbxl7" & cell_type !="20. Hdc/Slc16a10" & cell_type !="27. 1700042O10Rik/Ddc")
 
 
 col_for_plot<-as.character(neuro.res.plot$col_use)
 
 strip<-ggplot(neuro.res.plot, aes(x = cell_type, y = avg_logFC)) +
-   #geom_jitter(position = position_jitter(0.3), color = col_for_plot, alpha = 0.5)+
+   geom_jitter(position = position_jitter(0.3), color = col_for_plot, alpha = 0.5, size = 1)+
     theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=.5
                                    )) + 
@@ -1592,6 +1618,17 @@ de_counts
 
 ```{r neuron_GSEA_func, message=FALSE}
 
+library(fgsea)
+
+pathways.hallmark <- gmtPathways("h.all.v7.2.symbols.gmt")
+
+
+
+library(biomaRt)
+
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
 
 #prep gsea, ordered by foldchange of genes
 run_gsea <- function(DE_datx, pathway1, cell_name) {
@@ -1619,8 +1656,7 @@ DE_datx<-dplyr::select(DE_datx, HGNC.symbol, avg_logFC)
 
 
 neuro_names<-unique(neuro.res.merge$cell_type)
-
-neuro_names<-neuro_names[1:26]
+neuro_names
   
 neuro_names<-as.character(neuro_names)
 
@@ -1694,4 +1730,5 @@ neuron_hallmark_heatmap <- ggplot(data = neuro_res_hallmark_merge, mapping = aes
 
 neuron_hallmark_heatmap
 neuron_hallmark_heatmap + theme(axis.text.x=element_text(angle=45, hjust=1))
+
 ```
