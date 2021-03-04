@@ -335,7 +335,112 @@ plot_grid(plot_UMIs_hypo, plot_genes_hypo, nrow=1)
 
 
 
-#Figure 2
+#Figure 2 Regulon activity 
+
+#analysis by Doudou Yu
+
+1.1_binarized_regulon_activity.csv
+
+```{r regulaon, echo=FALSE}
+
+regs<-read.csv("1.1_binarized_regulon_activity.csv")
+
+
+dim(regs)
+regs<-t(regs)
+
+colnames(regs)<-regs[1,]
+regs
+
+regs<-regs[-1,]
+regs<-as_tibble(regs, rownames= "cell_ID")
+regs$cell_ID
+
+
+
+
+
+
+table(regs$group)
+q<-hypo.integrated
+q$cell_ID<-colnames(hypo.integrated)
+q$cell_ID<-str_replace(q$cell_ID, "-", ".")
+q$cell_ID
+
+raw.data <- tibble(q$cell_ID, q$group)
+colnames(raw.data)<-c("cell_ID", "group")
+
+
+
+regs<-full_join(regs, raw.data, by ="cell_ID")
+
+
+
+regs<-drop_na(regs)
+table(regs$group)
+
+regs_highn <- regs %>% dplyr::filter(group == "Oligodendrocyte" | group == "Astrocyte" | group == "Neuron" )
+
+regs_lown <- regs %>% dplyr::filter(group == "Tanycyte" | group == "Pericyte/Endothelial Cell" | group == "Ependymocyte" |  group == "Vascular and Leptomeningeal Cell" | group == "Arachnoid Barrier Cell"|  group == "Microglia/Macrophage" | group == "OPC")
+
+
+  
+regs_highn<-regs_highn %>% group_by(group) %>% do(sample_n(., 500))
+
+table(regs_highn$group)
+table(regs_lown$group)
+
+
+regs3<-bind_rows(regs_highn, regs_lown)
+
+table(regs3$group)
+
+regs2<-pivot_longer(
+  regs3,
+  cols = c(-cell_ID, -group),
+  names_to = "Regulon", 
+  values_to = "bin_RSS")
+
+table(regs2$bin_RSS, regs2$group)
+
+table(regs2$bin_RSS)
+
+regs2<-dplyr::group_by(regs2, group)
+#X: group (cell_id)
+#Y: Regulon
+#Z: binarized RSS score 
+
+
+table(regs2$group)
+
+
+regs2$group <- factor(x = regs2$group,
+                               levels =c("Arachnoid Barrier Cell", "Astrocyte", "Ependymocyte", "Microglia/Macrophage", "Neuron", "Oligodendrocyte", "OPC", "Pericyte/Endothelial Cell", "Tanycyte","Vascular and Leptomeningeal Cell"))
+
+regs2$plot_var<-paste(regs2$group, regs2$cell_ID)                          
+
+regs2$plot_var
+
+ggplot(regs2, aes(plot_var, Regulon, fill= bin_RSS)) + 
+geom_tile() + scale_fill_manual( values = c("1" = "black", "0" = "white")) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  theme_bw() 
+      
+
+ggsave(
+  "boop1.pdf",
+  plot = last_plot(),
+  scale = 1,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 300)
+
+ 
+
+```
 #Downsample
 
 
@@ -671,7 +776,7 @@ table(bulk_MAST$label)
 
 bulk_MAST$label
 
-write.csv(bulk_MAST, "Supplementary_Table_2_DE_Bulk.csv")
+write.csv(bulk_MAST, "Supplementary_Table_3_DE_Bulk.csv")
 
 
 bulk_volcano <- ggplot(bulk_MAST, aes(x=avg_logFC, y=neg_log10_pval)) +
@@ -726,7 +831,7 @@ cell_DE_res_merge<-group_by(cell_DE_res_merge, cell_type)
 
 
 
-write.csv(cell_DE_res_merge, "Supplementary_Table_3.csv")
+write.csv(cell_DE_res_merge, "Supplementary_Table_4.csv")
 
 saveRDS(cell_DE_res_merge, "cell_DE_res_merge_20210303.RDS")
 ```
@@ -1342,7 +1447,7 @@ table(Idents(hypo.neurons))
 
 
 
-write.csv(hypo.markers.neuron, "Supplementary_Table_6.csv")
+write.csv(hypo.markers.neuron, "Supplementary_Table_7.csv")
 
 
 
@@ -1531,7 +1636,7 @@ neuro.res.merge
 
 saveRDS(neuro.res.merge, "neuron_DE_results_20201221.RDS")
 
-write.csv(neuro.res.merge, "Supplementary_Table_7.csv")
+write.csv(neuro.res.merge, "Supplementary_Table_9.csv")
 
 # Load the "scales" package
 require(scales)
