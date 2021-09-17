@@ -1,0 +1,781 @@
+---
+title: "Monocle3_202109"
+author: "Doudou_Yu"
+date: "9/16/2021"
+output: html_document
+---
+```{r setup}
+knitr::opts_knit$set(root.dir = "/Volumes/DY_HD_1/Rstudio/Monocle/202109")
+```
+
+
+```{r load packages, echo=FALSE}
+library(ComplexHeatmap)
+library(cowplot)
+library(dplyr)
+library(enrichR)
+library(future.apply)
+library(gganimate)
+library(gghighlight)
+library(ggplot2)
+library(ggpubr)
+library(Hmisc)
+library(monocle3)
+library(reshape2)
+library(RColorBrewer)
+library(Seurat)
+library(scales)
+library(viridis)
+set.seed(00112233)
+```
+
+```{r visualize the seurat object and convert it into the monocle cds, echo=FALSE}
+hypo_all <- readRDS("/Volumes/DY_HD_1/Rstudio/Monocle/202108/hypo.integrated.final.20210719.RDS")
+a = DimPlot(hypo_all)
+# pdf(file = "UMAP_seurat.pdf",   # The directory you want to save the file in
+#     width = 6, # The width of the plot in inches
+#     height = 4) # The height of the plot in inches
+# 
+plot(a)
+# 
+# dev.off()
+
+# load the seurat object
+seurat.object <- hypo_all
+# assgin expression_matrix with RNA assays in the Seurat object
+expression_matrix <- seurat.object@assays[["RNA"]]@counts
+# get meta.data from the seurat.object
+pd <- data.frame(seurat.object@meta.data)
+# convert some of the data in the meta.data data from characters into factors 
+pd$orig.ident <- factor(
+  pd$orig.ident,
+  labels = c("Aged_1", "Aged_2", "Aged_3", "Aged_4", "Young_1", "Young_2", "Young_3", "Young_4"))
+# stimuli or time points
+pd$stim <- factor(
+  pd$stim,
+  labels = c("Aged", "Young"))
+# add two columns for pd
+pd[["cell"]] <- rownames(pd)
+pd[["cell.type"]] <- as.character(pd$group)
+
+# generate monocle3 cell_data_set (CDS), 
+# !!! make sure that the typeof(data) you transfer to Monocle is factor. You can convert other types into factor by using "factor()"
+pData <- pd %>% dplyr::select(cell, n.umi = nCount_RNA, time.point = stim,  batch = orig.ident, num_genes_expressed = nFeature_RNA, group, cell.type, percent.mt)
+fData <- data.frame(gene_short_name = row.names(expression_matrix), row.names = row.names(expression_matrix))
+hypo.cds <- new_cell_data_set(expression_matrix, cell_metadata = pData, gene_metadata = fData)
+
+# transfer seurat embeddings
+# note that these are calculated on the Integrated object, not the counts, thus will involve fewer genes
+reducedDim(hypo.cds, type = "PCA") <- hypo_all@reductions$pca@cell.embeddings 
+hypo.cds@preprocess_aux$prop_var_expl <- hypo_all@reductions$pca@stdev
+hypo.cds@preprocess_aux$gene_loadings <- hypo_all@reductions$pca@feature.loadings
+
+# transfer seurat UMAP embeddings
+hypo.cds@int_colData@listData$reducedDims$UMAP <- hypo_all@reductions$umap@cell.embeddings
+
+# copy cluster info from seurat
+hypo.cds@clusters$UMAP_Seurat$clusters <- hypo_all@meta.data$group
+# hypo.cds <- cluster_cells(hypo_all, reduction_method = "UMAP", resolution = 1e-3)
+rownames(hypo.cds@principal_graph_aux$UMAP$dp_mst) <- NULL
+colnames(hypo.cds@int_colData@listData$reducedDims$UMAP) <- NULL
+plot_cells(hypo.cds, color_cells_by = "time.point", group_label_size = 3.5)
+saveRDS(hypo.cds, "hypo_cds_seuratUMAP.RDS")
+```
+
+
+```{r load data -- cds object created on HPC using code: seurat2cds, echo=FALSE}
+hypo.cds <- readRDS("/Volumes/DY_HD_1/Rstudio/Monocle/202108/hypo_cds_seuratUMAP.RDS")
+#to check that there is enough PCs to capture most of the variation
+plot_pc_variance_explained(hypo.cds) 
+```
+
+```{r preprocess, echo=FALSE}
+hypo.cds_c_partition <- cluster_cells(hypo.cds, reduction_method = 'UMAP')
+plot_cells(hypo.cds_c_partition, color_cells_by = "partition")
+hypo.cds_c_learned <- learn_graph(hypo.cds_c_partition)
+plot_cells(hypo.cds_c_learned)
+# hypo.cds_rmbatch <- align_cds(hypo.cds_preprocessed, alignment_group = "batch") 
+# hypo.cds_reduced <- reduce_dimension(hypo.cds_rmbatch)
+# plot_cells(hypo.cds_reduced, label_groups_by_cluster=FALSE,  color_cells_by = "time.point")
+# hypo.cds_partition <- cluster_cells(hypo.cds_reduced)
+# plot_cells(hypo.cds_partition, color_cells_by = "partition")
+# hypo.cds_learned <- learn_graph(hypo.cds_partition)
+```
+
+
+```{r, fig.width=14, fig.height=7 ,dpi=600 ,echo=FALSE}
+p1 = plot_cells(hypo.cds_c_learned,
+           color_cells_by = "cell.type",
+           trajectory_graph_segment_size = 0.6,
+           graph_label_size = 10,
+           cell_size = 0.2,
+           label_groups_by_cluster=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE)
+
+p2 = plot_cells(hypo.cds_c_learned,
+           color_cells_by = "time.point",
+           trajectory_graph_segment_size = 0.6,
+           graph_label_size = 10,
+           cell_size = 0.2,
+           label_groups_by_cluster=FALSE,
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE) +
+           scale_color_manual(values=c("#D43D4F", "#25838E")) + 
+           theme(legend.position = "none") 
+p1+p2
+pdf(file = "trajectory_seurat.pdf", 
+    width = 10, 
+    height = 5) 
+plot(p1+p2)
+dev.off()
+```
+
+```{r subset microglia, echo=FALSE}
+microglia_c_cds_subset.by.graph <- choose_cells(hypo.cds_c_learned)
+microglia_c_cds_subset.by.graph <- microglia_c_cds_subset.by.graph[,grepl("Microglia", colData(microglia_c_cds_subset.by.graph)$cell.type, ignore.case=TRUE) |grepl("Macrophage", colData(microglia_c_cds_subset.by.graph)$cell.type, ignore.case=TRUE)]
+table(microglia_c_cds_subset.by.graph@colData@listData[["batch"]], microglia_c_cds_subset.by.graph@colData@listData[["cell.type"]])
+table(microglia_c_cds_subset.by.graph@colData@listData[["time.point"]], microglia_c_cds_subset.by.graph@colData@listData[["cell.type"]])
+```
+
+```{r helper function for getting the starting node + order cells by pseudotime, fig.width=14, fig.height=7 ,dpi=600, echo=FALSE}
+get_earliest_principal_node <- function(cds, time_bin="Aged"){
+  cell_ids <- which(colData(cds)[, "time.point"] == time_bin)
+  
+  closest_vertex <-
+  cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(cds), ])
+  root_pr_nodes <-
+  igraph::V(principal_graph(cds)[["UMAP"]])$name[as.numeric(names
+  (which.max(table(closest_vertex[cell_ids,]))))]
+  
+  root_pr_nodes
+}
+
+hypo.cds_c_learned_ordered <- order_cells(microglia_c_cds_subset.by.graph,
+                   root_pr_nodes=get_earliest_principal_node(microglia_c_cds_subset.by.graph))
+
+b = plot_cells(hypo.cds_c_learned_ordered,
+           color_cells_by = "pseudotime",
+           trajectory_graph_segment_size = 0.2,
+           graph_label_size = 0.5,
+           cell_size = 0.2,
+           label_roots=FALSE,
+           label_groups_by_cluster=FALSE,
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE) 
+pdf(file = "pseudotime_seurat.pdf",   # The directory you want to save the file in
+    width = 8, # The width of the plot in inches
+    height = 6) # The height of the plot in inches
+plot(b)
+dev.off()
+
+c = plot_cells(hypo.cds_c_learned_ordered,
+           color_cells_by = "time.point",
+           trajectory_graph_segment_size = 0.2,
+           graph_label_size = 0.5,
+           cell_size = 0.2,
+           label_roots=FALSE,
+           label_groups_by_cluster=FALSE,
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE)+
+           scale_color_manual(values=c("#D43D4F", "#25838E"))
+
+pdf(file = "realtime_seurat.pdf",   
+    width = 8,
+    height = 6) 
+plot(c)
+dev.off()
+b+c
+```
+
+```{r graph test to get t-DEGs,echo=FALSE}
+# saveRDS(hypo.cds_c_learned_ordered, "hypo.cds_c_learned_ordered_09.RDS")
+# saveRDS(hypo.cds_c_learned, "hypo.cds_c_learned.RDS")
+# microglia_c_cds_subset.by.graph <- readRDS("hypo.cds_c_learned_ordered_20210915.RDS")
+microglia_cds_subset.by.graph = microglia_c_cds_subset.by.graph
+# microglia_cds_subset.by.graph <- microglia_c_cds_subset.by.graph[,grepl("Young_3", colData(microglia_c_cds_subset.by.graph)$batch, ignore.case=TRUE)|
+#                                                                    grepl("Young_4", colData(microglia_c_cds_subset.by.graph)$batch, ignore.case=TRUE)|
+#                                                                    grepl("Aged_3", colData(microglia_c_cds_subset.by.graph)$batch, ignore.case=TRUE)|
+#                                                                    grepl("Aged_4", colData(microglia_c_cds_subset.by.graph)$batch, ignore.case=TRUE)]
+subset_pr_test_res <- graph_test(microglia_cds_subset.by.graph, neighbor_graph="principal_graph", cores=4)
+write.csv(subset_pr_test_res, "subset_pr_test_res_micro_09.csv")
+
+# subset_pr_test_res <- read.csv("subset_pr_test_res_micro_20210915.csv")
+# rownames(subset_pr_test_res) <- subset_pr_test_res$X
+pr_deg_ids <- row.names(subset(subset_pr_test_res, q_value < 0.05))
+```
+
+```{r embed pseudotime into the metadata and divde the timeline into mini timebins sized 0.15,echo=FALSE}
+pData(hypo.cds_c_learned_ordered)$pseudotime <- pseudotime(hypo.cds_c_learned_ordered)
+ordered_pseudot_cds <- hypo.cds_c_learned_ordered
+ordered_pseudot_cds <- ordered_pseudot_cds[,is.finite(pseudotime(ordered_pseudot_cds))]
+
+a <- as.numeric(ordered_pseudot_cds$pseudotime)
+# to divide the pseudotime timeline into mini time bins sized 0.15
+ordered_pseudot_cds$pseudotime_bin <-  cut2(as.numeric(ordered_pseudot_cds$pseudotime), seq(min(a),max(a), by = 0.15)) 
+table(ordered_pseudot_cds@colData@listData[["pseudotime_bin"]])
+
+table(ordered_pseudot_cds@colData@listData[["pseudotime_bin"]])
+table(ordered_pseudot_cds@colData@listData[["time.point"]],ordered_pseudot_cds@colData@listData[["pseudotime_bin"]])
+saveRDS(c,  "pseudotime_seurat_09.RDS")
+
+microglia_coembed <- ordered_pseudot_cds
+bins <- levels(microglia_coembed$pseudotime_bin)
+proportion_df <- data.frame()
+
+# to calculate the proportion of the aged nuclei in individual bins
+for(i in 1:length(bins)){
+  bin = bins[i]
+  meta <- subset(as.data.frame(microglia_coembed@colData@listData), pseudotime_bin == bin)
+  df <- data.frame(table(meta$time.point) / nrow(meta))
+  df <- df %>% dplyr::rename(c(time.point = Var1, proportion = Freq))
+  df$bin_num <- i
+  df$bin <- bin
+  proportion_df <- rbind(proportion_df, df)
+}
+
+# pearson correlation of the Aged nuclei propotion and the pseudotime timeline
+proportion_cor <- cor.test(
+  subset(proportion_df[,], time.point == 'Aged') %>% .$bin_num,
+  subset(proportion_df[,], time.point == 'Aged') %>% .$proportion,
+  method='pearson')
+
+plot_cells(ordered_pseudot_cds,
+           color_cells_by = "pseudotime_bin")
+
+write.csv(proportion_df, "proportion_df_09.csv")
+```
+
+```{r plot the aged_nuclei proportion along the pseudotime timeline,echo=FALSE}
+library(ggpubr)
+p <- ggscatter(
+  subset(proportion_df, time.point == 'Aged'),
+  color = "#D43D4F",
+  x = 'bin_num', y = 'proportion',
+  add ='reg.line',
+  add.params = list(color = '#5c4b4d', fill = 'lightgray'),
+  conf.int=TRUE, # it's the default value -- 95% confidence interval
+  cor.coef=TRUE,
+  cor.coeff.args = list(method = 'pearson', label.sep = '\n'),
+  alpha = 0.8,
+  size = 2.5, 
+  title = "Propotion of aged nuclei along the pseudotime") + 
+  xlab('pseudotime') +
+  ylab('proportion')
+  theme(
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_blank())
+  
+p
+pdf(file = 'aged_proportion_09.pdf', 
+    width = 5, 
+    height = 3)
+print(p)
+dev.off()
+```
+```{r DAM gene sets enrichment along the pseudotime timeline, fig.height=3, fig.width=5 ,echo=FALSE}
+# ordered_pseudot_cds <- readRDS("pseudotime_seurat_09.RDS")
+micro_mcro <- hypo.integrated[,rownames(ordered_pseudot_cds@colData)]
+micro_mcro$pseudotime <- ordered_pseudot_cds@colData$pseudotime
+micro_mcro$pseudotime_bin <- ordered_pseudot_cds@colData$pseudotime_bin
+mm_coembed <- micro_mcro
+DefaultAssay(mm_coembed) <- "RNA"
+# three states of microglia and their  marker genes, based on 
+# https://www.sciencedirect.com/science/article/pii/S0092867418305762?via%3Dihub#readcube-epdf
+# and https://www.nature.com/articles/s41588-021-00894-z?proof=t
+homeostatic <- c('Cx3cr1', 'P2ry12', 'Hexb', 'Cst3', 'Csf1r', 'Ctss', 'Tmsb4x', 'C1qb')
+stage1_DAM <- c('Tyrobp', 'Ctsb', 'Apoe', 'B2m', 'Fth1', 'Trem2')
+stage2_DAM <- c('Trem2', 'Axl', 'Cst7', 'Ctsl', 'Lpl', 'Cd9', 'Csf1', 'Itgax', 'Timp2', 'Spp1')
+mm_coembed <- AddModuleScore(
+  mm_coembed,
+  features=list('stage1_DAM' = stage1_DAM, 'stage2_DAM' = stage2_DAM, 'homeostatic' = homeostatic),
+  pool = rownames(mm_coembed), k=F, nbin=24, #nbin=19 has the same result
+  name = c('stage1_DAM', 'stage2_DAM', 'homeostatic'))
+
+DAM_modules <- select(mm_coembed@meta.data, c(pseudotime_bin, stage1_DAM1, stage2_DAM2, homeostatic3))
+DAM_modules$pseudotime_bin_num <- as.numeric(DAM_modules$pseudotime_bin)
+features <- c('stage1_DAM1', 'stage2_DAM2', 'homeostatic3')
+modules <- DAM_modules
+mod_colors <- c('#0072B2', '#E69F00', '#D55E00')
+# compute average expression of DAM modules in each pseudotime bin
+tmp <- lapply(1:max(modules$pseudotime_bin_num), function(i){
+  df <- modules %>% subset(pseudotime_bin_num == i)
+  data.frame(
+    value = as.numeric(colSums(df[,features]) / nrow(df)),
+    bin_num = i,
+    feature = features)
+})
+plot_df <- Reduce(rbind, tmp)
+p <- ggplot(plot_df, aes(bin_num, value, color = feature)) +
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'gray', alpha = 0.75) +
+  geom_point(size = 1) +
+  geom_smooth() +
+  scale_color_manual(values = mod_colors) +
+  xlab('pseudotime') + ylab('module score') +
+  theme_bw() + 
+  theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+                     panel.grid.minor = element_blank(),
+                     axis.ticks.x = element_blank(),
+                     axis.text.x = element_blank()) + 
+  ggtitle('DAM module scores along the pseudotime')
+  
+p
+p <- p + NoLegend()
+pdf(file = 'microglia_module_trajectory.pdf', 
+    width = 5, 
+    height = 3)
+print(p)
+dev.off()
+```
+```{r calculate the t-DEGs' average expression over the pseudotime mini time bins, and the output the file for RVAgene (in python),echo=FALSE}
+saveRDS(micro_mcro, 'micro_mcro.RDS')
+# micro_mcro <- readRDS("micro_mcro.RDS")
+name <- 'microglia_pseudotime_0.05'
+
+# load pseudotime DEGs:
+subset_pr_test_res <- read.csv("subset_pr_test_res_micro_09.csv")
+pseudotime_table <- subset_pr_test_res
+pseudotime_table <- subset(subset_pr_test_res, q_value < 0.05)
+rownames(pseudotime_table) <- pseudotime_table$gene_short_name
+# smooth pseudotime genes
+pseudotime_genes <- as.character(rownames(pseudotime_table))
+# average expression over pseudotime bins:
+Idents(micro_mcro) <- micro_mcro$pseudotime_bin
+average_exp <- AverageExpression(micro_mcro, slot='data', assay='RNA', features=pseudotime_genes)
+average_exp <- average_exp$RNA
+
+# rescale each gene between -1 and 1:
+scaled_exp <- sapply(1:nrow(average_exp), function(i) rescale(as.numeric(average_exp[i,]), to=c(-1,1))) %>% t %>% as.data.frame
+rownames(scaled_exp) <- rownames(average_exp)
+average_exp <- scaled_exp
+# pad with zeros to work with RVAgene:
+average_exp <- cbind(rep(0, nrow(average_exp)), average_exp)
+# write to ourput file
+write.table(average_exp, file=paste0(name, '_TRAIN'), sep=',',quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(average_exp, file=paste0(name,  '_TEST'), sep=',',quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(as.data.frame(rownames(average_exp)), file=paste0(name, '_feature_names.csv' ), sep=',',quote=FALSE, row.names=FALSE, col.names=FALSE)
+```
+
+
+```{r normalize and visualize the output of the RVAgene (python), fig.height=8, fig.width=4 ,echo=FALSE}
+# run the RVAgene in python with the input = '_TRAIN', '_TEST', and '_feature_names'
+# for the method paper: https://doi.org/10.1093/bioinformatics/btab260
+# the RVAgene output is 'microglia_pseudotime_0.05_recon.csv', read it and normalize 
+recon_df <- read.csv('microglia_pseudotime_0.05_recon.csv', sep=',', row.names=1, header=TRUE)
+
+# the last two columns are Z1 and Z2, seperate the Z values and the reconstructed RVAE decoded expression
+z_df <- recon_df[,(ncol(recon_df)-2):ncol(recon_df)]
+recon_df <- recon_df[,1:(ncol(recon_df)-2)]
+z_df$gene <- rownames(z_df)
+range01 <- function(x){
+  cur <- recon_df[x,]
+  (cur-min(cur))/(max(cur)-min(cur))
+}
+
+# z-normalize by row
+scaled <- lapply(rownames(recon_df), range01)
+scaled <- do.call(rbind, scaled)
+rownames(scaled) <- rownames(recon_df)
+
+# order rows by the time they reach 99% min expression
+ordering <- future_lapply(1:nrow(scaled), function(i){
+  match(names(scaled[i,])[scaled[i,] >= 0.99][1], colnames(scaled))
+})
+ordered <- scaled[rownames(scaled)[order(unlist(ordering))],]
+
+grouped <- scaled
+grouped$group <- unlist(ordering)
+grouped <- grouped[rownames(grouped)[order(unlist(ordering))],]
+
+ordered <- ordered[rownames(ordered),]
+a<- ComplexHeatmap::Heatmap(
+  as.matrix(ordered),
+  show_column_names = TRUE, show_row_names=TRUE,
+  col = viridis(256),
+  cluster_rows=FALSE,
+  cluster_columns=FALSE,
+  # right_annotation=ha,
+  # left_annotation=color_ha,
+  use_raster = TRUE)
+
+color_ha <- rowAnnotation(k_means = as.character(z_df$cluster[match(rownames(ordered), rownames(z_df))]))
+# Microglia signature genes
+add_genes <- c('Apoe', 'Spi1', 'Ets1', 'Csf1r', 'Cd74', 'P2ry12', 'Xist') 
+
+# these are the DE genes identified by the fit_model in monocle (shown on the last chunk -- chunk 20)
+fit_m_genes <- c("Gm42418",  "Pde3b", "Elmo1", "Csmd3", "Plxdc2","Zfhx3","Numb", "Siglech", "Tgfbr1",
+                 "Srgap2", "Selplg", "Tanc2","Lrmda", "Cd84",  "Cst3", "Rad51b", "Gm26740", "B2m", 
+                 "Cd9",  "Cacna1a","Anapc15",  "Cd63","St8sia6", "Tnfsf8","Myo1e",  "Ifi204", "Nlrc5",
+                 "Neat1","Apoe", "Ctsb","Cst7",  "Ccl3",  "Trps1",  "Cd52",  "Bc1",  "Malat1","Apobec1", 
+                 "Lyz2", "Fgr","Pvt1", "H2-K1", "Arhgap15", "Lpl", "Lilrb4a", "H2-D1", "Spp1","Rftn1", "Axl")
+
+cur_anno_genes <- c(fit_m_genes, add_genes) %>% unique
+
+AD_degs_indices = na.omit(match(cur_anno_genes, rownames(ordered)))
+AD_degs_labels = cur_anno_genes[cur_anno_genes %in% rownames(ordered)]
+AD_degs_colors = rep('blue', length(AD_degs_labels))
+names(AD_degs_colors) <- AD_degs_labels
+
+ha = rowAnnotation(
+  foo = anno_mark(
+    at = AD_degs_indices, labels = AD_degs_labels
+), col=list(foo=AD_degs_colors))
+
+# group the 19 groups into four big groups: group1 (1-3), group2(4-5), group3(6-17), group4(18-19) 
+# based on the heatmap pattern
+grouped$bigg <- 1
+grouped["bigg"][grouped["group"] == 4 | grouped["group"] == 5] <- 2
+grouped["bigg"][grouped["group"] > 5] <- 3
+grouped["bigg"][grouped["group"] == 18| grouped["group"] == 19] <- 4
+
+module = grouped$bigg
+module_col = c("1" = "#009E73", "2" = "#F0E442", "3" = "#E69F00", "4" = "#D55E00")
+
+write.csv(grouped, 'grouped.csv')
+write.csv(ordered, "ordered_0.05_heatmap.csv")
+
+pdf('microglia_recon_moranI_0.05_heatmap_0.99_2.pdf', width=4, height=8)
+
+ht_list = Heatmap(module, col = module_col,
+          cluster_rows = FALSE,
+          show_row_names = FALSE,
+          show_column_names = FALSE,
+          row_title = NULL,
+          column_title = NULL,
+          heatmap_legend_param = list(title = "Module")) +
+  Heatmap(
+    as.matrix(ordered),
+    show_column_names = FALSE, 
+    show_row_names=FALSE,
+    col = viridis(256),
+    cluster_rows=FALSE,
+    cluster_columns=FALSE,
+    right_annotation=ha,
+    # left_annotation=color_ha,
+    use_raster = TRUE,
+    heatmap_legend_param = list(title = "RVAE\ndeconded\nexpression")
+  )
+
+draw(ht_list, row_km = 4, row_split = module,
+     column_title = "Heatmap of pseudotime t-DEGs \n grouped as four time-course modules", 
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"), 
+     merge_legends = TRUE, heatmap_legend_side = "right")  
+
+dev.off()
+draw(ht_list, row_km = 4, row_split = module,
+     column_title = "Heatmap of pseudotime t-DEGs \n grouped as four time-course modules", 
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"), 
+     merge_legends = TRUE, heatmap_legend_side = "right")  
+```
+
+```{r UMAP of 2k t-DEGs (the two axis are Z1 and Z2 in the RVAgene) embedding colored by pseudotime and aging correlation, fig.height=4, fig.width=9 ,echo=FALSE}
+z_df$rank <- match(rownames(z_df), rownames(ordered))
+p <- ggplot(z_df, aes(Z1, Z2, color=rank)) +
+  geom_point() +
+  scale_color_gradientn(colors = plasma(256),guide = guide_colorbar(barwidth = 0.5, barheight = 10, ticks = FALSE)) + labs(color='trajectory\nrank') +
+  background_grid()
+p <- p + 
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.line = element_line(colour = "black"))
+
+# proportion_df <- read.csv('proportion_df_09.csv')
+proportion_df <- subset(proportion_df, proportion < 1.1)
+
+# for each gene in the 2k t-DEGs, it has normalized RVAE encoded value in all the mini time bins. 
+# run the correlation between "the RVAE encoded value" and "Aged proportion" in the ~20 time bins
+prop_cor <- sapply(1:nrow(recon_df), function(i){
+  cor(as.numeric(recon_df[i,]), subset(proportion_df, time.point=='Aged') %>% .$proportion)
+})
+
+names(prop_cor) <- rownames(recon_df)
+plot_df <- z_df
+plot_df$value <- prop_cor
+
+q <- ggplot(plot_df, aes(Z1, Z2, color=value)) +
+  geom_point(size=2) +
+  scale_color_gradient2(
+    low="#25838E", mid='white', high="#D43D4F",
+    guide = guide_colorbar(barwidth=0.5, barheight=10, ticks=FALSE)) +
+  labs(color=paste0('aging\ncorrelation'),shape='') +
+  theme(
+  panel.background = element_blank(),
+  plot.background = element_blank(),
+  panel.border = element_blank(), 
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(), 
+  axis.line = element_line(colour = "black"))
+
+plot(p + ggtitle("Microglia t-DEGs embedding colored by the pseudotime and aging correlation") + q)
+pdf( 'microglia_0.05_Z_rank + correlation_age_0.99.pdf', width=9, height=4, useDingbats=FALSE)
+plot(p + ggtitle("Microglia t-DEGs embedding colored by the pseudotime and aging correlation") + q)
+dev.off()
+```
+```{r GO analysis for the t-DEGs in the four modules, fig.height=8, fig.width=14 ,echo=FALSE}
+dbs <- c('GO_Biological_Process_2018','GO_Cellular_Component_2018',
+         'GO_Molecular_Function_2018')
+
+wrapText <- function(x, len) {
+  sapply(x, function(y) paste(strwrap(y, len), collapse = "\n"), USE.NAMES = FALSE)
+}
+
+celltype <- "microglia_macrophage"
+collapsed_output <- data.frame()
+
+grouped <- read.csv("grouped.csv")
+rownames(grouped) <- grouped$X
+for(i in 1:length(as.list(grouped$bigg %>% unique))){
+  print(i)
+  # run enrichR on different gene sets:
+  cur_result <- enrichr(rownames(grouped[grouped$bigg == i,]), dbs)
+  # collapse results into one dataframe
+  for(db in dbs){
+    cur_result[[db]]$cluster <- celltype
+    cur_result[[db]]$db <- db
+    cur_result[[db]]$pseudotime_group <- i
+    collapsed_output <- rbind(collapsed_output, cur_result[[db]])
+  }
+}
+
+# plot GO terms
+collapsed_output$wrap <- wrapText(collapsed_output$Term,45)
+# plot bar plots of top 25 terms by p val for each group
+# here we only show the "biological_process", but you can definitely replace it with other terms in the dbs
+for(group in unique(collapsed_output$pseudotime_group)){
+  plot_df <- collapsed_output %>%
+    subset(pseudotime_group == group & db == 'GO_Biological_Process_2018') %>%
+    top_n(-25, wt=P.value)
+  p <- ggplot(plot_df, aes(x=log(Combined.Score), y=reorder(wrap, Combined.Score)))+
+    geom_bar(stat='identity', position='identity', color='black') +
+    theme(
+      panel.grid.major=element_blank(),
+      panel.grid.minor=element_blank(),
+      legend.title = element_blank()
+    ) + ylab('') + xlab('log(Combined.Score)')
+  pdf(paste0('group_', group, '_terms.pdf'), width=6, height=12)
+  print(p)
+  dev.off()
+}
+
+# plot dot plot of top 10 terms in each group:
+terms <- collapsed_output %>%
+  subset(db == 'GO_Biological_Process_2018' & P.value <= 0.05) %>%
+  group_by(pseudotime_group) %>%
+  top_n(10, wt=-P.value)
+terms$Term <- as.character(do.call(rbind, strsplit(terms$Term, '[(]GO:'))[,1])
+terms$Term <- factor(terms$Term, levels=unique(terms$Term))
+terms$logp <- -1*log(as.numeric(terms$P.value))
+terms$wrap <- wrapText(terms$Term, 45)
+terms$wrap <- factor(terms$wrap, levels=rev(unique(terms$wrap)))
+
+pdf(paste0(celltype, '_GO_term_dotplot_10.pdf'), width = 14, height = 8, useDingbats=FALSE)
+g <- ggplot(data=terms, aes(x=reorder(wrap, desc(wrap)), y = reorder(pseudotime_group, desc(pseudotime_group)))) +
+  geom_point(aes(col=logp, size=Combined.Score)) +
+  scale_size(range=c(3,10)) +
+  scale_color_viridis(discrete=FALSE) +
+  theme(
+    axis.text.x = element_text(angle=90, hjust=1, vjust = 0),
+    axis.text.y = element_text(hjust=-0.5, vjust = 0),
+    axis.line = element_blank(),
+    axis.ticks.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_rect(color='black', fill=NA, size=1),
+    legend.direction = "horizontal",
+    legend.position = c(0.85, 0.82),
+    legend.key.size = unit(1, 'cm'),
+    plot.title = element_text(hjust = 0, vjust = 0.2)
+  ) +
+  ylab('') + xlab('')+
+  ggtitle("Dotplot for GO_BP top10 terms in the four modules") 
+
+leg <- ggplot(terms, aes(y = reorder(pseudotime_group, desc(pseudotime_group)), x = 0)) + 
+  geom_point(aes(color = as.factor(pseudotime_group)), shape = 15, size = 42, show.legend = F) + 
+  theme_classic() + 
+  scale_color_manual(values =  c( "1"="#009E73", "2"="#F0E442", "3"="#E69F00", "4"="#D55E00")) +
+  theme(axis.title = element_blank(), axis.line = element_blank(), 
+        axis.text = element_blank(), axis.ticks = element_blank(), 
+        plot.margin = unit(c(0,0,0,0), "cm"))
+p <- g + annotation_custom(ggplotGrob(leg),
+                           xmin = -0.2, xmax = 0.3, 
+                           ymin = 0.295, ymax = 4.685
+                           )
+  
+print(p)
+dev.off()
+print(p)
+# save GO terms table:
+write.table(collapsed_output, file=paste0('group_',celltype,'_reconstructed_GO_terms.tsv'), quote=F, sep='\t', row.names=FALSE)
+
+```
+
+
+```{r project the four modules onto the umap, fig.height=1.8, fig.width=14 ,echo=FALSE}
+grouped <- read.csv("grouped.csv")
+grouped_sub <- grouped[,c(1,22)]
+colnames(grouped_sub) <- c("id", 'module')
+
+umap_theme <- theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank(),
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  axis.line.x = element_blank(),
+  axis.line.y = element_blank())
+
+p1 = plot_cells(microglia_cds_subset.by.graph, genes = grouped_sub %>% filter(module %in% c(1)), 
+           show_trajectory_graph=FALSE, 
+           label_cell_groups=FALSE,
+           cell_size = 0.6) + umap_theme
+  
+p2 = plot_cells(microglia_cds_subset.by.graph, genes = grouped_sub %>% filter(module %in% c(2)), 
+           show_trajectory_graph=FALSE, 
+           label_cell_groups=FALSE,
+           cell_size = 0.6) + umap_theme
+
+p3 = plot_cells(microglia_cds_subset.by.graph, genes = grouped_sub %>% filter(module %in% c(3)), 
+           show_trajectory_graph=FALSE, 
+           label_cell_groups=FALSE,
+           cell_size = 0.6)  + umap_theme
+
+p4 = plot_cells(microglia_cds_subset.by.graph, genes = grouped_sub %>% filter(module %in% c(4)), 
+           show_trajectory_graph=FALSE, 
+           label_cell_groups=FALSE,
+           cell_size = 0.6)  + umap_theme
+
+
+# p1 = plot_cells(microglia_cds_subset.by.graph, genes=gene_module_df %>% filter(module %in% c(1,2,3)), 
+#            show_trajectory_graph=FALSE, 
+#            label_cell_groups=FALSE,
+#            cell_size = 0.6) + rremove("xy.text") + rremove("ticks") + rremove("xylab")
+# p2 = plot_cells(microglia_cds_subset.by.graph, genes=gene_module_df %>% filter(module %in% c(4,5,6)), 
+#            show_trajectory_graph=FALSE, 
+#            label_cell_groups=FALSE,
+#            cell_size = 0.6) + rremove("xy.text") + rremove("ticks") + rremove("xylab")
+title <- ggdraw() + draw_label("Projection of the four modules on the UMAP", fontface='bold')
+b <- plot_grid(p1, p2, p3, p4,  nrow = 1, ncol = 4) 
+b <- plot_grid(title, b, nrow = 2, ncol = 1, rel_heights=c(0.1, 1)) 
+b
+pdf(file = "trajectory_micro_4_modules.pdf",   # The directory you want to save the file in
+    width = 14, # The width of the plot in inches
+    height = 1.8) # The height of the plot in inches
+plot(b)
+dev.off()
+```
+
+
+```{r plot the four t-DEG Modules and their violin plots, fig.height=5, fig.width=10, echo=FALSE}
+library(ggpubr)
+hypo.cds_learned <- microglia_c_cds_subset.by.graph
+microglia_cds_subset.by.graph <- microglia_c_cds_subset.by.graph
+get_genes_plots <- function(gene_list){
+  AFD_lineage_cds <- hypo.cds_learned[rowData(hypo.cds_learned)$gene_short_name %in% gene_list,
+                                    colData(hypo.cds_learned)$cell.type %in% c("Microglia", "Macrophage")]
+  AFD_lineage_cds <- order_cells(AFD_lineage_cds, root_pr_nodes=get_earliest_principal_node(microglia_cds_subset.by.graph))
+  a <- plot_genes_in_pseudotime(AFD_lineage_cds,
+                         color_cells_by="time.point",
+                         cell_size = 0.25,
+                         min_expr=0.5 )+ 
+    scale_color_manual(values=c("#D43D4F", "#25838E"))+
+    theme(legend.position = "none", strip.text = element_text(face = "italic")) + labs(y = "Relative Expression")
+  
+  cds_subset <- microglia_cds_subset.by.graph[rowData(microglia_cds_subset.by.graph)$gene_short_name %in% gene_list,]
+  cds_subset$time.point <- factor(cds_subset$time.point , levels=c("Young", "Aged"), ordered = TRUE)
+  b <- plot_genes_violin(cds_subset, group_cells_by = "time.point") + 
+    theme(strip.text = element_text(face = "italic")) + 
+    scale_fill_manual(values=c("#25838E", "#D43D4F")) + labs(y = "Relative Expression") #+ rremove("xlab")
+  plot_grid(a, b, nrow = 1, ncol = 2)
+}
+
+genes_module1 <- c("Csf1r", "Nav3","Numb", "Cx3cr1")
+module1 <- get_genes_plots(genes_module1) 
+title <- ggdraw() + draw_label("Module 1",fontface = 'plain')
+module1 <- plot_grid(title, module1, ncol = 1, rel_heights = c(0.1, 1))
+  
+genes_module2 <- c( "Csmd3", "Plxdc2", "Tanc2", "Cst3")
+module2 <- get_genes_plots(genes_module2)
+title <- ggdraw() + draw_label("Module 2",fontface = 'plain')
+module2 <- plot_grid(title, module2, ncol = 1, rel_heights = c(0.1, 1))
+
+genes_module3 <- c("Cd63", "Ccl4", "Cybb", "C1qb")
+module3 <- get_genes_plots(genes_module3)
+title <- ggdraw() + draw_label("Module 3",fontface = 'plain')
+module3 <- plot_grid(title, module3, ncol = 1, rel_heights = c(0.1, 1))
+
+genes_module4 <- c("B2m", "Apoe", "Xist", "Lyz2")
+module4 <- get_genes_plots(genes_module4)
+title <- ggdraw() + draw_label("Module 4",fontface = 'plain')
+module4 <- plot_grid(title, module4, ncol = 1, rel_heights = c(0.1, 1))
+
+grouped_p <- subset_pr_test_res[rownames(grouped_sub),]
+grouped_p$pseudotime_module <- grouped_sub$module
+grouped_p <- grouped_p[,c(3,4,5,7,8)]
+write.csv(grouped_p, '4_modules_q_moranI.csv')
+module1234 <- plot_grid(module1, module2, module3, module4, nrow = 1, ncol = 4)
+pdf(file = 'trajectory_4_modules.pdf', width=12, height=5)
+module1234
+dev.off()
+
+module1234
+```
+
+```{r other genes for qPCR, fig.height=4, fig.width= 3, echo=FALSE}
+
+qpcr <- c("Itgam", "Arhgap15", "Gapdh")
+qpcr <- get_genes_plots(qpcr)
+title <- ggdraw() + draw_label("qpcr genes",fontface = 'plain')
+qpcr <- plot_grid(title, qpcr, ncol = 1, rel_heights = c(0.1, 1))
+
+pdf(file = 'trajectory_other_qpcr_genes.pdf', width=3, height=4)
+qpcr
+dev.off()
+qpcr
+```
+
+```{r plot three DAM Modules, fig.height=8, fig.width= 10, echo=FALSE}
+homeostatic <- c('Cx3cr1', 'P2ry12', 'Hexb', 'Cst3', 'Csf1r', 'Ctss', 'Tmsb4x', 'C1qb')
+stage1_DAM <- c('Tyrobp', 'Ctsb', 'Apoe', 'B2m', 'Fth1', 'Trem2')
+stage2_DAM <- c('Trem2', 'Axl', 'Cst7', 'Ctsl', 'Lpl', 'Cd9', 'Csf1', 'Itgax', 'Timp2', 'Spp1')
+
+module5 <- get_genes_plots(stage1_DAM)
+title <- ggdraw() + draw_label("stage1_DAM",fontface = 'plain')
+module5 <- plot_grid(title, module5, ncol = 1, rel_heights = c(0.1, 1))
+
+module6 <- get_genes_plots(stage2_DAM)
+title <- ggdraw() + draw_label("stage2_DAM",fontface = 'plain')
+module6 <- plot_grid(title, module6, ncol = 1, rel_heights = c(0.1, 1))
+
+module7 <- get_genes_plots(homeostatic) 
+title <- ggdraw() + draw_label("homeostatic",fontface = 'plain')
+module7 <- plot_grid(title, module7, ncol = 1, rel_heights = c(0.1, 1))
+
+module567 <- plot_grid(module7, module5, module6, nrow = 1, ncol = 3)
+module567
+pdf(file = 'trajectory_3_modules.pdf', width=10, height=8)
+module567
+dev.off()
+```
+
+```{r fit_model, for more info, check monocle3 website, echo=FALSE}
+hypo.cds_c <- cluster_cells(hypo.cds, reduction_method = 'UMAP')
+partition5_c <- hypo.cds_c[,grepl("4", hypo.cds_c@clusters@listData[["UMAP"]][["partitions"]],
+                                  ignore.case=TRUE)]
+microglia_c <- partition5_c[,grepl("Microglia", colData(partition5_c)$cell.type, ignore.case=TRUE) | 
+                          grepl("Macrophage", colData(partition5_c)$cell.type, ignore.case=TRUE)]
+time_models <- fit_models(microglia_c,
+                          model_formula_str = "~time.point",
+                          expression_family="negbinomial")
+fit_coefs_nb <- coefficient_table(time_models)
+emb_time_terms_nb <- fit_coefs_nb %>% filter(term != "(Intercept)")
+
+filtered_output <- emb_time_terms_nb %>% filter(q_value < 0.05) %>% 
+     select(gene_short_name, num_cells_expressed, term, q_value, estimate, normalized_effect)
+
+write.csv(filtered_output, "fit_models_time_filtered.csv")
+```
