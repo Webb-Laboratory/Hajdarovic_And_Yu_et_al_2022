@@ -288,8 +288,8 @@ DefaultAssay(mm_coembed) <- "RNA"
 # https://www.sciencedirect.com/science/article/pii/S0092867418305762?via%3Dihub#readcube-epdf
 # and https://www.nature.com/articles/s41588-021-00894-z?proof=t
 homeostatic <- c('Cx3cr1', 'P2ry12', 'Hexb', 'Cst3', 'Csf1r', 'Ctss', 'Tmsb4x', 'C1qb')
-stage1_DAM <- c('Tyrobp', 'Ctsb', 'Apoe', 'B2m', 'Fth1', 'Trem2')
-stage2_DAM <- c('Trem2', 'Axl', 'Cst7', 'Ctsl', 'Lpl', 'Cd9', 'Csf1', 'Itgax', 'Timp2', 'Spp1')
+stage1_DAM <- c('Tyrobp', 'Ctsb', 'Apoe', 'B2m', 'Fth1')
+stage2_DAM <- c('Trem2', 'Axl', 'Cst7', 'Ctsl', 'Lpl', 'Cd9', 'Csf1', 'Itgax', 'Timp2')
 mm_coembed <- AddModuleScore(
   mm_coembed,
   features=list('stage1_DAM' = stage1_DAM, 'stage2_DAM' = stage2_DAM, 'homeostatic' = homeostatic),
@@ -740,8 +740,8 @@ qpcr
 
 ```{r plot three DAM Modules, fig.height=8, fig.width= 10, echo=FALSE}
 homeostatic <- c('Cx3cr1', 'P2ry12', 'Hexb', 'Cst3', 'Csf1r', 'Ctss', 'Tmsb4x', 'C1qb')
-stage1_DAM <- c('Tyrobp', 'Ctsb', 'Apoe', 'B2m', 'Fth1', 'Trem2')
-stage2_DAM <- c('Trem2', 'Axl', 'Cst7', 'Ctsl', 'Lpl', 'Cd9', 'Csf1', 'Itgax', 'Timp2', 'Spp1')
+stage1_DAM <- c('Tyrobp', 'Ctsb', 'Apoe', 'B2m', 'Fth1')
+stage2_DAM <- c('Trem2', 'Axl', 'Cst7', 'Ctsl', 'Lpl', 'Cd9', 'Csf1', 'Itgax', 'Timp2')
 
 module5 <- get_genes_plots(stage1_DAM)
 title <- ggdraw() + draw_label("stage1_DAM",fontface = 'plain')
