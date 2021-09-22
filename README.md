@@ -11,3 +11,5 @@ sptial_transcriptomics: ipynb and environment.yml
 
 For figures: check https://drive.google.com/drive/folders/1vLzmPdAkaBxXpcqgJgYHqHmv71FBgGlJ?usp=sharing
 
+## 20210921  
+Updated DAM figures and Rmd file - deleted Trem2 from DAM1, deleted Spp1 from DAM2
