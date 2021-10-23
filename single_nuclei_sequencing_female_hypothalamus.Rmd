@@ -1,0 +1,3199 @@
+---
+title: "single_nuclei_sequencing_aged_hypothalamus"
+author: "K.H. Hajdarovic"
+date: "7/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60), fig.width=7.5}
+knitr::opts_chunk$set(dev = 'pdf')
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Generating Hypo.Integrated Object// Quality Control
+
+Load in the packages.
+```{r load-packages, echo = FALSE, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(MAST)
+library(ggplot2)
+library(SCENIC)
+library(SCopeLoomR)
+library(viridis)
+library(AUCell)
+library(cowplot)
+library(ggpubr)
+library(ggrastr)
+library(ggrepel)
+library(SeuratDisk)
+library(ggpattern)
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+
+hypo.integrated<-readRDS("hypo.integrated.final.20210719.RDS")
+
+neuro.integrated<-readRDS("neuro.integrated.20210802.RDS")
+
+
+my_theme = theme(
+  axis.title.x = element_text(size = 16),
+  axis.text.x = element_text(size = 14),
+  axis.title.y = element_text(size = 16),
+  aspect.ratio=1)
+
+```
+
+
+
+
+Load in the data. 
+
+```{r load-10x, eval = FALSE}
+setwd("~/Desktop/single_cell_sequencing_paper/")
+
+Aged_1 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Aged_1/filtered_feature_bc_matrix/") 
+Aged_2 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Aged_2/filtered_feature_bc_matrix/")
+Aged_3 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Aged_3/filtered_feature_bc_matrix/")
+Aged_4 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Aged_4/filtered_feature_bc_matrix/")
+Young_1 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Young_1/filtered_feature_bc_matrix/")
+Young_2 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Young_2/filtered_feature_bc_matrix/")
+Young_3 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Young_3/filtered_feature_bc_matrix/")
+Young_4 <- Read10X(data.dir = "single_nuclei_hypothalamus_all_data/Young_4/filtered_feature_bc_matrix/")
+
+
+Aged_1 <-CreateSeuratObject(counts = Aged_1, project = "Aged_1", min.cells = 3, min.features = 200)
+Aged_2 <-CreateSeuratObject(counts = Aged_2, project = "Aged_2", min.cells = 3, min.features = 200)
+Aged_3 <-CreateSeuratObject(counts = Aged_3, project = "Aged_3", min.cells = 3, min.features = 200)
+Aged_4 <-CreateSeuratObject(counts = Aged_4, project = "Aged_4", min.cells = 3, min.features = 200)
+Young_1 <-CreateSeuratObject(counts = Young_1, project = "Young_1", min.cells = 3, min.features = 200)
+Young_2 <-CreateSeuratObject(counts = Young_2, project = "Young_2", min.cells = 3, min.features = 200)
+Young_3 <-CreateSeuratObject(counts = Young_3, project = "Young_3", min.cells = 3, min.features = 200)
+Young_4 <-CreateSeuratObject(counts = Young_4, project = "Young_4", min.cells = 3, min.features = 200)
+
+
+#add age variable
+
+
+Aged_1$stim <-"Aged"   
+Aged_2$stim <-"Aged"
+Aged_3$stim <-"Aged"   
+Aged_4$stim <-"Aged"
+Young_1$stim <-"Young"
+Young_2$stim <-"Young"
+Young_3$stim <-"Young"
+Young_4$stim <-"Young"
+
+
+#add batch variable
+Aged_1$batch <-"1"   
+Aged_2$batch <-"1"  
+Aged_3$batch <-"2"   
+Aged_4$batch <-"2"
+Young_1$batch <-"1"  
+Young_2$batch <-"1"  
+Young_3$batch <-"2"
+Young_4$batch <-"2"
+
+
+
+
+#Add a variable that accounts for the percentage of mitochondrial genes read per cell using the PercentFeatureSet function
+
+
+Aged_1[["percent.mt"]] <- PercentageFeatureSet(Aged_1, pattern = "^mt-")
+Aged_2[["percent.mt"]] <- PercentageFeatureSet(Aged_2, pattern = "^mt-")
+Aged_3[["percent.mt"]] <- PercentageFeatureSet(Aged_3, pattern = "^mt-")
+Aged_4[["percent.mt"]] <- PercentageFeatureSet(Aged_4, pattern = "^mt-")
+
+Young_1[["percent.mt"]] <- PercentageFeatureSet(Young_1, pattern = "^mt-")
+Young_2[["percent.mt"]] <- PercentageFeatureSet(Young_2, pattern = "^mt-")
+Young_3[["percent.mt"]] <- PercentageFeatureSet(Young_3, pattern = "^mt-")
+Young_4[["percent.mt"]] <- PercentageFeatureSet(Young_4, pattern = "^mt-")
+
+
+g1<-VlnPlot(Aged_4, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"),ncol = 4, pt.size = 0.1)
+g1
+
+g1<-VlnPlot(Young_4, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"),ncol = 4, pt.size = 0.1)
+g1
+
+#Subset the data to keep only cells with more than 200 and less than 3000 (7500 for batch 2) features, and less than 10% mitochondrial mapping
+
+
+Aged_1<- subset(Aged_1, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+Aged_2<- subset(Aged_2, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+Aged_3<- subset(Aged_3, subset = nFeature_RNA > 200 & nFeature_RNA < 7500  & percent.mt < 10)
+Aged_4<- subset(Aged_4, subset = nFeature_RNA > 200 & nFeature_RNA < 7500  & percent.mt < 10)
+Young_1<- subset(Young_1, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+Young_2<- subset(Young_2, subset = nFeature_RNA > 200 & nFeature_RNA < 3000  & percent.mt < 10)
+Young_3<- subset(Young_3, subset = nFeature_RNA > 200 & nFeature_RNA < 7500  & percent.mt < 10)
+Young_4<- subset(Young_4, subset = nFeature_RNA > 200 & nFeature_RNA < 7500  & percent.mt < 10)
+
+
+```
+
+#Fig S1A-B
+
+```{r QC_1, eval = FALSE}
+lis<-c("Young_1", "Young_2", "Young_3", "Young_4", "Aged_1", "Aged_2", "Aged_3", "Aged_4")
+
+
+nuclei_count
+
+nuclei_count<-as.data.frame(table(hypo.integrated$orig.ident))
+nuclei_count$Var1<-factor(nuclei_count$Var1, levels = lis )
+
+nuclei_count$batch<-c("1", "1", "2", "2", "1", "1", "2", "2")
+nuclei_count
+  
+
+p<-ggplot(data=nuclei_count, aes(x=Var1, y=Freq, fill = Var1)) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values =  c("Young_1" = "#4998A1", "Young_2" = "#6DACB3", "Young_3" = "#92C1C6", "Young_4" = "#B6D5D9", "Aged_1" = "#DB5D6C", "Aged_2"  = "#E27D89", "Aged_3" = "#E99EA7", "Aged_4"  = "#F0BEC4")) + theme_bw() + theme(panel.grid.major = element_blank(), 
+panel.grid.minor = element_blank(),
+axis.line = element_line(colour = "black"),
+panel.border = element_blank(), 
+legend.position = "none") + theme(aspect.ratio = 1)
+
+
+
+meta<-hypo.integrated@meta.data
+meta<-as_tibble(meta) %>% 
+  dplyr::select(orig.ident,nCount_RNA, nFeature_RNA, percent.mt) %>% 
+  group_by(orig.ident) 
+meta$orig.ident <- factor(meta$orig.ident, levels = rev(lis))
+
+meta_sum <- meta %>% summarise(across(everything(), list(mean)))
+
+
+#plot UMIs per sample
+plot_nCount <- 
+  meta%>% 
+  ggplot(aes(x = orig.ident, y = nCount_RNA, fill = orig.ident)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("UMIs/cell") +
+  scale_y_continuous(limits = c(500, 8000), breaks = c( 500, 1000, 2000, 3000, 4000, 5000, 6000, 8000)) +
+  coord_flip() +  scale_fill_manual(values =  c("Young_1" = "#4998A1", "Young_2" = "#6DACB3", "Young_3" = "#92C1C6", "Young_4" = "#B6D5D9", "Aged_1" = "#DB5D6C", "Aged_2"  = "#E27D89", "Aged_3" = "#E99EA7", "Aged_4"  = "#F0BEC4")) + theme_bw() +theme(
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(),
+  axis.line = element_line(colour = "black"),
+  panel.border = element_blank(), 
+  legend.position = "none") 
+
+#plot features per sample
+plot_nFeat <- 
+  meta%>% 
+  ggplot(aes(x = orig.ident, y = nFeature_RNA, fill = orig.ident)) + 
+  geom_violin(show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  xlab("") +
+  ylab("Genes/cell") +
+  scale_y_continuous(limits = c(500, 8000), breaks = c( 500, 1000, 2000, 3000, 4000, 5000, 6000, 7500)) +
+  coord_flip() + scale_fill_manual(values =  c("Young_1" = "#4998A1", "Young_2" = "#6DACB3", "Young_3" = "#92C1C6", "Young_4" = "#B6D5D9", "Aged_1" = "#DB5D6C", "Aged_2"  = "#E27D89", "Aged_3" = "#E99EA7", "Aged_4"  = "#F0BEC4")) + theme_bw() +  theme(
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(),
+  axis.line = element_line(colour = "black"),
+  panel.border = element_blank(), 
+  legend.position =  "none") 
+
+
+
+percellplot<-plot_grid(plot_nCount, plot_nFeat, nrow=1) + theme(aspect.ratio = 1)
+
+
+topplot <-plot_grid(p,percellplot, nrow= 1)
+               
+
+```
+
+
+
+
+##Make seurat object
+```{r make_int_obj, eval = FALSE}
+library(future)
+plan("multiprocess", workers = 6)
+plan()
+
+
+#integrate data into one Seurat object
+hypo.list<-c(Aged_1, Aged_2, Aged_3, Aged_4, Young_1, Young_2, Young_3, Young_4)
+for (i in 1:length(hypo.list)) {
+    hypo.list[[i]] <- NormalizeData(hypo.list[[i]], verbose = FALSE)
+    hypo.list[[i]] <- FindVariableFeatures(hypo.list[[i]], selection.method = "vst", nfeatures = 5000, verbose = FALSE)
+}
+
+hypo.anchors <- FindIntegrationAnchors(object.list = hypo.list, dims = 1:30)
+hypo.integrated <- IntegrateData(anchorset = hypo.anchors, dims = 1:30)
+
+
+#Normalize the data, identify variable features, and scale the data. 
+
+
+#RNA assay
+
+DefaultAssay(hypo.integrated) <- "RNA"
+hypo.integrated <- ScaleData(hypo.integrated, verbose = FALSE)
+
+#integrated assay
+DefaultAssay(hypo.integrated) <- "integrated"
+hypo.integrated <- ScaleData(hypo.integrated, verbose = FALSE)
+hypo.integrated <- RunPCA(hypo.integrated, npcs = 30, verbose = FALSE)
+ElbowPlot(hypo.integrated)
+hypo.integrated <- FindNeighbors(hypo.integrated, dims = 1:30)
+hypo.integrated <- FindClusters(hypo.integrated, resolution = 1.5)
+hypo.integrated <- RunUMAP(hypo.integrated, reduction = "pca", dims = 1:30)
+
+DimPlot(hypo.integrated)
+
+dev.off()
+
+#saveRDS(hypo.integrated,"~/scratch/hypo.integrated.analyzed.20210719.RDS")
+
+#find markers for each cluster
+
+hypo.markers <- FindAllMarkers(hypo.integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+topten<-hypo.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC) 
+
+#get top two markers for each cluster
+top2<-hypo.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC)
+
+#rename each cluster with top2 markers
+top2 <- top2 %>%  group_by(cluster) %>%  
+  dplyr::mutate(markers = paste0(gene, collapse = "/")) %>% dplyr::slice(1)  
+marker.names<-top2$markers
+current.cluster.ids <- as.character(0:(length(unique(Idents(hypo.integrated)))-1)) 
+new.cluster.ids <- marker.names
+Idents(hypo.integrated) <- plyr::mapvalues(Idents(hypo.integrated),
+                                           from = current.cluster.ids, to = new.cluster.ids)
+
+
+
+x<-subset(hypo.integrated, idents = "Microglia")
+x
+write_csv(topten, "Supplementary_Table_1_Cluster_Markers.csv")
+
+hypo.integrated$orig.cluster<-Idents(hypo.integrated)
+
+
+```
+
+
+
+##Identify clusters
+
+```{r analyze_clusters, eval = FALSE}
+setwd("~/Desktop/single_cell_sequencing_paper/")
+hypo.integrated<-readRDS("hypo.integrated.analyzed.20210719.RDS")
+
+clustavg<-AverageExpression(hypo.integrated)
+clustdf<-as.data.frame(clustavg$RNA)
+clustdf<-t(clustdf)
+clustdf<-as_tibble(clustdf, rownames = "cluster")
+head(clustdf)
+dim(clustdf)
+
+marks<-read_csv("cluster_markers_20210721.csv")
+df2<- clustdf %>% dplyr::select("cluster",marks$Gene) 
+
+
+df2$orig_cluster<-df2$cluster
+df2
+
+
+FeaturePlot(hypo.integrated, features = c("Pomc"))
+
+df2$ID
+df2<- df2 %>% mutate(ID = ifelse(Syt1 > 3, "Neuron", "NN"))
+
+#oligos
+df2<- df2 %>% mutate(ID = ifelse(Olig1 > 2 & Top2a > 1, "Oligodendrocyte", df2$ID)) #proliferating
+df2<- df2 %>% mutate(ID = ifelse(Olig1 > 1 & Mobp > 1, "Oligodendrocyte", df2$ID)) #myelinating
+df2<- df2 %>% mutate(ID = ifelse(Olig1 > 2 & Pdgfra > 1, "OPC", df2$ID))
+df2<- df2 %>% mutate(ID = ifelse(Olig1 > 2 & Fyn > 3, "Oligodendrocyte", df2$ID)) #New
+
+df2<- df2 %>% mutate(ID = ifelse(Agt > 3, "Astrocyte", df2$ID))
+
+df2<- df2 %>% mutate(ID = ifelse(C1qa > 3 & Cx3cr1 > 2, "Microglia", df2$ID))
+df2<- df2 %>% mutate(ID = ifelse(C1qa > 3 & Mrc1 > 2, "Macrophage", df2$ID))
+df2<- df2 %>% mutate(ID = ifelse(Rax > 1, "Tanycyte", df2$ID))
+
+df2<- df2 %>% mutate(ID = ifelse(Ccdc153 > 1, "Ependymocyte", df2$ID))
+	
+df2<- df2 %>% mutate(ID = ifelse(Cldn5 > 1, "Endothelial Cell", df2$ID))
+df2<- df2 %>% mutate(ID = ifelse(Kcnj8 > 3, "Pericyte", df2$ID))
+
+df2<- df2 %>% mutate(ID = ifelse(Slc47a1 > 3, "ABC", df2$ID))
+df2<- df2 %>% mutate(ID = ifelse(Slc6a13 > 3, "VLMC", df2$ID))
+
+
+y<-dplyr::select(df2,cluster)
+
+Idents(hypo.integrated)<-plyr::mapvalues(Idents(hypo.integrated), from = df2$cluster, to = df2$ID)
+hypo.integrated$group<-Idents(hypo.integrated)
+
+
+#reorder groupings
+levels(hypo.integrated) <- c("Astrocyte",
+"Endothelial Cell",
+"Ependymocyte", 
+"Macrophage",
+"Microglia",
+"Neuron",
+"Oligodendrocyte",
+"OPC",
+"Pericyte",
+"Tanycyte",
+"VLMC")
+  
+  
+
+saveRDS(hypo.integrated, "hypo.integrated.final.20210719.RDS")
+```
+
+
+#Fig S1C-D
+```{r s1cd, eval = FALSE}
+
+cell_ct <- as.data.frame(table(Idents(hypo.integrated), hypo.integrated$orig.ident))
+
+cell_ct$Var1<-factor(cell_ct$Var1, levels =  c("Astrocyte",
+"Endothelial Cell",
+"Ependymocyte", 
+"Macrophage",
+"Microglia",
+"Neuron",
+"Oligodendrocyte",
+"OPC",
+"Pericyte",
+"Tanycyte",
+"VLMC"))
+
+cell_ct$Var2<-factor(cell_ct$Var2, levels = c("Young_1", "Young_2", "Young_3", "Young_4", "Aged_1", "Aged_2", "Aged_3", "Aged_4"))
+
+cell_ct<-group_by(cell_ct, Var1)
+
+#get correct color for fill
+cols<-read_csv("color_pal.csv")
+cols$group<-cols$cluster_name
+myColors <-cols$hex_code
+names(myColors) <- cols$group
+
+
+countplot<-ggplot(cell_ct, aes(x = Var2,y= Freq, fill = Var1)) + geom_bar(position="stack", stat="identity") + scale_fill_manual(values = myColors) + theme_bw() + theme(
+  axis.title.x = element_blank(),
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(),
+  axis.line = element_line(colour = "black"),
+  panel.border = element_blank()) + theme(aspect.ratio=1)
+                  
+
+
+prop_chart<- ggplot(cell_ct, aes(fill=Var2, y=Freq, x=Var1)) + 
+  geom_col(position = "fill") + scale_fill_manual(values =  c("Young_1" = "#4998A1", "Young_2" = "#6DACB3", "Young_3" = "#92C1C6", "Young_4" = "#B6D5D9", "Aged_1" = "#DB5D6C", "Aged_2"  = "#E27D89", "Aged_3" = "#E99EA7", "Aged_4"  = "#F0BEC4")) + theme_bw() + theme(
+  axis.title.x = element_blank(),
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(),
+  axis.line = element_line(colour = "black"),
+  panel.border = element_blank()) + theme(aspect.ratio=1)
+
+
+botplot <-plot_grid( countplot,prop_chart,  nrow= 1)
+               
+
+full_plot<-plot_grid(topplot, botplot, nrow = 2)
+full_plot
+```
+
+#Fig 1B
+```{r analyze_clusters_2, eval = FALSE}
+#hypo.integrated<-readRDS("hypo.integrated.final.20210719.RDS")
+
+cols<-read_csv("color_pal.csv")
+cols
+myColors <-cols$hex_code
+names(myColors) <- cols$cluster_name
+myColors
+
+library(ggrastr)
+
+DimPlot
+Seurat:::SingleDimPlot
+p1<-DimPlot(hypo.integrated, reduction = "umap", cols = myColors ) + my_theme
+p1
+p1 + rasterise( dpi = 300) + theme(aspect.ratio = 1)
+
+DefaultAssay(hypo.integrated) <- "RNA"
+
+library(cowplot)
+
+my_theme2 = theme(
+  axis.title.y = element_blank(),
+  axis.title.x = element_blank(),
+  aspect.ratio=1)
+
+p1<-FeaturePlot(hypo.integrated, features = c("Syt1")) + my_theme2 + geom_point(element_blank())
+p1
+p2<- FeaturePlot(hypo.integrated, features = c("Agt")) + my_theme2
+p3<- FeaturePlot(hypo.integrated, features = c("Plp1")) + my_theme2
+p4<- FeaturePlot(hypo.integrated, features = c("C1qa")) + my_theme2
+
+
+plot_grid(p1, p2, p3, p4, ncol = 1)
+
+
+
+```
+
+
+#Fig 1C
+```{r all-cells-heatmap, echo=FALSE}
+
+#read in downsampled data
+
+hypo.integrated.small<-readRDS("hypo.integrated.scaled.down.20210721.RDS")
+
+#data object is too big 
+features<-read_csv("heatmap_markers_20210816.csv")
+features<-features$Marker
+features<-str_replace(features, " ", "")
+
+DefaultAssay(hypo.integrated.small) <- "RNA"
+
+library(viridis)
+
+
+DoHeatmap(hypo.integrated.small,  features = features, size = 3, label = F) + scale_fill_viridis( na.value = "white")
+
+
+```
+
+
+
+
+
+##SCENIC 
+```{r SCENIC_prep, eval = FALSE}
+
+
+
+
+#https://htmlpreview.github.io/?https://github.com/aertslab/SCopeLoomR/blob/master/vignettes/SCopeLoomR_Seurat_tutorial.nb.html
+#prepare count matrix for pySCENIC CLI
+#all cells 
+
+new_cells<-subset(hypo.integrated, orig.ident == "Young_3" | orig.ident == "Young_4"| orig.ident == "Aged_3" | orig.ident == "Aged_4")
+
+new_cells$group
+
+build_loom(file.name = "hypo.integrated.20210726.loom",
+        dgem = new_cells@assays$RNA@counts,
+        title = "all_cells",
+        default.embedding = new_cells@reductions$umap@cell.embeddings,
+        default.embedding.name = "umap")
+
+loom <- open_loom(file.path = "hypo.integrated.20210726.loom", mode = "r+")
+
+
+annot_df <-FetchData(object = new_cells, vars = c("group", "stim"))
+annot_df$cell_name<-rownames(annot_df)
+
+group_list <- as.list(as.character(annot_df$group))
+names(group_list) <- annot_df$cell_name
+
+stim_list <- as.list(as.character(annot_df$stim))
+names(stim_list) <- annot_df$cell_name
+stim_list
+
+
+
+
+add_col_attr(loom = loom, key = "stim",
+              value = new_cells@meta.data$stim, as.annotation = TRUE)
+
+
+add_col_attr(loom = loom, key = "sample",
+              value = new_cells@meta.data$orig.ident, as.annotation = TRUE)
+
+add_col_attr(loom = loom, key = "group",
+              value = as.character(new_cells@meta.data$group, as.annotation = TRUE))
+
+close_loom(loom)
+
+```
+
+
+
+##Generate meta-regulon list
+```{r SCENIC_1, eval = FALSE}
+setwd("~/Desktop/single_cell_sequencing_paper/20210726_output")
+
+
+#count how often gene regulon pair occurs
+
+Regulon_Names<-tibble()
+for(i in 0:50) {
+  print(i)
+  pyScenicLoomFile <- paste0(i, "_20210726_SCENIC.loom")
+  loom <- open_loom(pyScenicLoomFile, mode="r")
+  regulons_incidMat <- get_regulons(loom, column.attr.name='Regulons')
+  regulons <- regulonsToGeneLists(regulons_incidMat)
+  close_loom(loom)
+  df<-enframe(regulons)
+  colnames(df)<- c("Regulon", "Gene_List")
+  df$iteration<-i
+  Regulon_Names<-bind_rows(Regulon_Names, df) }
+
+x<-Regulon_Names
+
+
+#filter regulon pairs occuring 10 or more times
+regct<-enframe(table(Regulon_Names$Regulon))
+regct<-dplyr::filter(regct, value >= 10)
+regct$name
+
+
+Regulon_Names<-dplyr::filter(Regulon_Names, Regulon %in% regct$name )
+Regulon_Names<-group_by(Regulon_Names, Regulon)
+Regulon_Names$Gene_List
+
+x<-as.list(Regulon_Names$Gene_List)
+names(x)<-Regulon_Names$Regulon
+x<-stack(x)
+x<-as_tibble(x)
+
+x <-group_by(x, ind)
+
+
+y <- dplyr::count(x, values)
+y <- dplyr:: filter(y , n >= 10)
+y <-group_by(y, ind)
+
+z<-group_split(y)
+
+reg.list<- list()
+
+for (i in seq_along(z)) {
+  reg<-z[[i]][1,1]
+  g<-as.list(z[[i]][2])
+  names(g) <- reg$ind
+  reg.list <- append(reg.list, g)
+}
+
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+
+saveRDS(reg.list, "regulons.20210814.RDS")
+
+```
+
+##Run AUCell
+```{r SCENIC_2, eval = FALSE}
+
+#performed on OSCAR
+module load R/4.1.0
+module load gcc/10.2 pcre2/10.35 intel/2020.2 texlive/2018
+interact -n 6 -m 128g -t 4:00:00
+
+
+
+
+aucellRankings<-readRDS("aucellrankings_20210930.RDS")
+regulons <- readRDS("regulons.20210814.RDS")
+hypo.int<-readRDS("hypo.integrated.final.20210719.RDS")
+exprMat<-hypo.int@assays$RNA@counts
+cellInfo <- data.frame(seuratCluster=Idents(hypo.int))
+
+
+#R
+library(tidyverse)
+library(Seurat)
+library(AUCell)
+
+regulons <- readRDS("regulons.20210814.RDS")
+nCores <- 6
+hypo.int<-readRDS("hypo.integrated.final.20210719.RDS")
+exprMat<-hypo.int@assays$RNA@counts
+regulonAUC<-readRDS("regulonAUC_20211001.RDS")  
+
+
+
+
+# 1. Create rankings
+set.seed(101521)
+
+aucellRankings <- AUCell_buildRankings(exprMat, nCores=nCores, plotStats=FALSE)
+saveRDS(aucellRankings, "aucellrankings_20210930.RDS")
+
+#aucellRankings<-readRDS("aucellrankings.RDS")
+
+#2. Calculate AUC
+regulonAUC <- AUCell_calcAUC(regulons, aucellRankings, nCores=nCores)
+
+    
+# Order the modules by similarity, for easier exploration in the upcoming steps & save
+variableRegulons <- names(which(apply(getAUC(regulonAUC), 1, sd) > 0))
+reguDist <-as.dist(1-cor(t(getAUC(regulonAUC)[variableRegulons,]), method="spear"))
+reguClust <- hclust(reguDist, method="ward.D2")
+regulonClusters <- setNames(dynamicTreeCut::cutreeDynamic(reguClust, distM=as.matrix(reguDist), verbose = FALSE), reguClust$labels)
+  regulonOrder <- reguClust$labels[reguClust$order]
+  regulonOrder <- regulonOrder[order(regulonClusters[regulonOrder], decreasing = TRUE)]
+  
+  
+
+
+  
+regulonAUC <- regulonAUC[regulonOrder,]
+saveRDS(regulonAUC, "regulonAUC_20211001.RDS")  
+  
+# 3. Default thresholds
+
+cells_AUCellThresholds <- AUCell_exploreThresholds(regulonAUC, assignCells=TRUE, plotHist=FALSE, verbose=FALSE, nCores=nCores)
+saveRDS(cells_AUCellThresholds, "aucell_thresholds_20210930.RDS")
+
+
+# Get cells assigned to each regulon
+regulonsCells <- getAssignments(cells_AUCellThresholds)
+    
+#binarize
+regulonActivity <- reshape2::melt(regulonsCells)
+binaryRegulonActivity <- t(table(regulonActivity[,1], regulonActivity[,2]))
+class(binaryRegulonActivity) <- "matrix"
+
+saveRDS(binaryRegulonActivity, "binaryRegulonActivity_20211001.RDS")
+
+
+#prep data for plotting
+
+binaryRegulonActivity<-readRDS("binaryRegulonActivity_20211001.RDS")
+
+
+bin_tib<-as_tibble(binaryRegulonActivity, rownames = "regulon")
+
+bin_tib<-pivot_longer(bin_tib, -regulon, names_to = "cell_ID", values_to = "onoff")
+
+#get metadata for each cell
+meta_tib<-as_tibble(hypo.int@meta.data, rownames = "cell_ID")
+plot_tib<-full_join(bin_tib, meta_tib, by = "cell_ID")
+
+
+#add cell type specificity measure to plot_tib
+
+plot_tib<-full_join(plot_tib, reg_counts, by = "regulon")
+
+saveRDS(plot_tib, "binarized_data_for_plot_20211001.RDS")
+```
+##Prep SCENIC Plot
+
+```{r plot_SCENIC_1, eval = FALSE}
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+plot_tib<-readRDS("binarized_data_for_plot_20211001.RDS")
+
+
+
+
+#get 500 or less of each cell
+
+cells_use<-dplyr::select(plot_tib, cell_ID, group)
+
+#all cells
+cells_use<-unique(cells_use)
+cells_use<-group_by(cells_use, group)
+#randomly sampled 500 taking with replacement (since some groups dont have 500)
+cells_use<-sample_n(cells_use, 500, replace = T)
+
+#remove duplicates
+cells_use<-unique(cells_use)
+cells_use<-cells_use$cell_ID
+cells_use
+
+#subset plot_tib
+
+plot_tib<-dplyr::filter(plot_tib, cell_ID %in% cells_use)
+
+
+saveRDS(plot_tib, "dataforscenicheatmap.RDS")
+                
+```
+
+
+
+#Fig 2A
+```{r plot_SCENIC, eval = FALSE}  
+  
+plot_tib<-readRDS( "dataforscenicheatmap.RDS")
+
+
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+cols<-read_csv("color_pal.csv")
+cols$group<-cols$cluster_name
+myColors <-cols$hex_code
+names(myColors) <- c(2:12)
+myColors<-c(myColors,  "0" = "#FFFFFF")
+
+myColors
+
+
+plot_tib$binary<-as.numeric(plot_tib$onoff)
+
+plot_tib <-plot_tib %>%
+  group_by(regulon) %>%
+  filter(sum(onoff) > 100)
+
+reg_sum <-plot_tib %>%
+  group_by(regulon) %>%
+  summarise(total = sum(onoff == 1)) %>%
+  arrange(desc(total))
+
+
+reg_order<-reg_sum$regulon
+
+#write.table(reg_order, "reg_order.txt", row.names = F, quote = F)
+
+
+
+
+reg_order<-read.csv("reg_order.txt")
+reg_order$regs
+
+
+plot_tib$regulon<-factor(plot_tib$regulon, levels = rev(reg_order$regs))
+levels(plot_tib$regulon)
+unique(plot_tib$regulon)
+
+plot_tib<-dplyr::mutate(plot_tib, colcol = ifelse(binary == 0, 0, ifelse(binary == 1 & group == "Astrocyte", 2, ifelse(binary == 1 & group == "Endothelial Cell", 3, ifelse(binary == 1 & group =="Ependymocyte", 4, ifelse(binary == 1 & group == "Macrophage", 5, ifelse(binary == 1 & group == "Microglia", 6, ifelse(binary == 1 & group == "Neuron", 7, ifelse(binary == 1 & group =="Oligodendrocyte", 8, ifelse(binary == 1 & group == "OPC", 9, ifelse(binary == 1 & group == "Pericyte", 10, ifelse(binary == 1 & group == "Tanycyte", 11, ifelse(binary == 1 & group =="VLMC", 12,  NA)))))))))))))
+
+plot_tib$colcol<-as.character(plot_tib$colcol)
+
+
+
+
+bin_heatmap <- ggplot(data = plot_tib, mapping = aes(x = cell_ID, y = regulon, fill = colcol)) +
+geom_tile()  + scale_fill_manual(values = myColors) +
+theme(plot.background=element_blank(),axis.text.x=element_blank(),
+axis.ticks.x=element_blank()) + 
+theme(legend.position = "none") +
+facet_grid(~factor(group, levels = c("Astrocyte","Endothelial Cell","Ependymocyte", "Macrophage","Microglia","Neuron","Oligodendrocyte","OPC","Pericyte","Tanycyte","VLMC")), scales = "free_x",space = "free_x") + theme(panel.spacing = unit(.1, "lines")) + theme(axis.line = element_line(colour = "black"))
+
+bin_heatmap
+
+
+
+
+```
+
+
+
+```{r SCENIC_3, eval = FALSE}
+#ran AUCELL on all cells on OSCAR, calculated RSS and regulon activity per group per #http://htmlpreview.github.io/?https://github.com/aertslab/SCENIC/blob/master/inst/doc/SCENIC_Running.html
+
+
+
+
+regulonActivity_byCellType <- sapply(split(rownames(cellInfo), cellInfo$seuratCluster),
+                                     function(cells) rowMeans(getAUC(regulonAUC)[,cells]))
+regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType), center = T, scale=T))
+saveRDS(regulonActivity_byCellType_Scaled, "regulonActivity_byCellType_Scaled.20211005.RDS")
+
+
+rss <- calcRSS(AUC=getAUC(regulonAUC), cellAnnotation=cellInfo[colnames(regulonAUC), "seuratCluster"])
+
+saveRDS(rss, "rss.20211005.RDS")
+```
+
+
+#Fig 2B
+
+
+```{r SCENIC_4, eval = FALSE}
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+rss<-readRDS("rss.20211005.RDS")
+regulonActivity_byCellType_Scaled<-readRDS("regulonActivity_byCellType_Scaled.20211005.RDS")
+
+
+write.csv(rss, "Supplementary_Table_2_RSS.csv")
+rss_tib<-as_tibble(rss, rownames = "regulon")
+
+rss_tib
+
+#write_csv(rss_tib, "Regulon_Specificity_Scores.csv")
+rss_tib<-pivot_longer(rss_tib, -regulon, names_to = "cell_type", values_to = "RSS")
+
+rss_tib<- rss_tib %>%
+ungroup() %>%
+  arrange(cell_type, RSS) %>%
+  mutate(order = row_number()) 
+
+rss_tib<-group_by(rss_tib, cell_type)
+rss_tib_labels<-top_n(rss_tib, 5, RSS)
+rss_tib_labels
+
+
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+cols<-read_csv("color_pal.csv")
+cols$group<-cols$cluster_name
+myColors <-cols$hex_code
+names(myColors) <- cols$group
+
+
+
+ggplot(rss_tib, aes(order, RSS)) +  # Use .r instead of
+  geom_point() +
+  geom_point(data = rss_tib_labels, aes(order, RSS, color = cell_type)) +
+  geom_text(data =rss_tib_labels,  aes(label=regulon)) +
+  facet_wrap(~ cell_type, scales = "free")  + theme_bw() + theme(
+  axis.title.x = element_blank(),
+  panel.grid.major = element_blank(), 
+  panel.grid.minor = element_blank(),
+  axis.line = element_line(colour = "black"), legend.position = "none",
+  panel.border = element_blank()) + theme(aspect.ratio=1) + theme(strip.background = element_blank())
+  
+
+```
+
+
+
+```{r DE_Plo1t_1, eval = FALSE}
+
+cols<-read_csv("color_pal.csv")
+cols
+myColors <-cols$hex_code
+names(myColors) <- cols$cluster_name
+myColors
+
+hypo.integrated$stim<-factor(hypo.integrated$stim, levels = c("Young", "Aged"))
+
+p1<-DimPlot(hypo.integrated, group.by  = "stim", raster = F, cols = c("Young" = "#25838E50", "Aged" = "#D43D4F50")) + coord_equal() + theme(title = element_blank()) 
+p1
+
+
+```
+
+##Bulk DE
+
+```{r bulk_mast, eval = FALSE}
+
+library(MAST)
+
+
+hypo.integrated<-readRDS("hypo.integrated.final.20210719.RDS")
+
+DefaultAssay(de_obj) <- "RNA"
+bulk_MAST<- FindMarkers(de_obj, features = feat, ident.1 = "Aged" , ident.2 = "Young", verbose = T, test.use = "MAST", only.pos = FALSE, logfc.threshold = 0, latent.vars = c("nCount_RNA","orig.ident"))
+bulk_MAST
+
+saveRDS(bulk_MAST, "bulk.DE.RES.20210721.RDS")
+
+bulk_MAST<-readRDS("bulk.DE.RES.20210721.RDS")
+
+```
+
+#Fig 3A
+```{r bulk_mast, eval = FALSE}
+
+
+
+bulk_MAST<-readRDS("bulk.DE.RES.20210721.RDS")
+
+#get top 15 DE genes
+bulk_plot<-arrange(bulk_MAST, avg_log2FC)
+top15<-slice_max(bulk_plot, order_by = avg_log2FC,  n = 15)
+
+#get bottom 15 DE genes
+min15<-slice_min(bulk_plot, order_by = avg_log2FC,  n = 15)
+
+
+gene_lab<-c(top15$gene, min15$gene)
+
+#add arbitrarily small p value for plotting (can't plot -log10(0))
+bulk_plot$p_val[bulk_plot$p_val==0] <- 1e-323
+
+bulk_plot$neg_log10_pval <- -log10(bulk_plot$p_val)
+bulk_plot$log_pval <- log(bulk_plot$p_val)
+
+
+#this labels as significant only genes with a FC >0.1 which is what was used in the Ximerakis paper 
+
+bulk_plot<-bulk_plot %>% mutate(label_2 = ifelse(p_val_adj < 0.05 & (avg_log2FC) >=.1 , "Sig Up", ifelse(p_val_adj < 0.05 & (avg_log2FC) <= -.1, "Sig Down", "NS")))
+
+table(bulk_plot$label_2)
+
+
+write_csv(bulk_MAST, "Supplementary_Table_3_Bulk_DE_res.csv")
+
+
+bulk_volcano <- ggplot(bulk_plot, aes(x=avg_log2FC, y=neg_log10_pval)) +
+  labs(y="-log10(p-value)", 
+       x="Average Log2 Fold Change") + 
+  theme(plot.title=element_text(size=16,hjust=0.5),  # title
+        plot.subtitle=element_text(size=14,hjust=0.5),  # subtitle
+        axis.title.x=element_text(size=14),  # X axis title
+        axis.title.y=element_text(size=14, vjust=.5), # Y axis title
+        axis.text.x=element_text(size=14, angle = 30),  # X axis text
+        axis.text.y=element_text(size=14)) +  # Y axis text 
+  # x axis tick mark labels
+  theme(axis.text.x= element_text(colour="black",size =14 )) +
+  # y axis tick mark labels
+  theme(axis.text.y = element_text(colour="black",size =14)) +
+  theme(legend.position="bottom") +
+ # ylim(-10, 150) +
+  geom_point(data=bulk_plot[bulk_plot$label_2== "NS",],color="gray41",size=1.5) +
+  geom_point(data=bulk_plot[bulk_plot$label_2 != "NS",],color="mediumorchid3",size=1.5) + #make significant genes red 
+ geom_text_repel(aes(x=avg_log2FC, y=neg_log10_pval, label = gene, )
+,data = bulk_plot[bulk_plot$gene %in% gene_lab,], max.overlaps = Inf, fontface = "italic")
+
+bulk_volcano<-bulk_volcano +theme_bw()  + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+axis.line = element_line(colour = "black"),
+panel.border = element_blank())
+
+
+bulk_volcano
+```
+
+##DE per cell
+
+```{r DE_per_cell}
+
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+
+hypo.integrated<-readRDS("hypo.integrated.final.20210719.RDS")
+
+
+cell_names<- c("Astrocyte","Endothelial Cell","Ependymocyte", "Macrophage","Microglia","Neuron","Oligodendrocyte","OPC","Pericyte","Tanycyte",
+"VLMC")
+
+do_mast <- function(de_obj, subset_name) {
+
+subset_DE_obj<-subset(de_obj, idents=c(subset_name))
+table(Idents(subset_DE_obj))
+
+subset_DE_obj$celltype.stim<- paste(subset_name,subset_DE_obj$stim, sep = "_") #this sets a metadata column where cell names are the cell type identity plus whether they are aged or young
+
+Idents(subset_DE_obj) <- "celltype.stim" #this changes the idents of the object to the celltype.stim value we created in the line above this
+
+print(table(Idents(subset_DE_obj)))
+
+DefaultAssay(subset_DE_obj) <-"RNA"
+subset_DE_obj_MAST<- FindMarkers(subset_DE_obj, ident.1 = paste(subset_name, "Aged", sep = "_") , ident.2 = paste(subset_name, "Young", sep = "_"), verbose = FALSE, test.use = "MAST", only.pos = FALSE, logfc.threshold = 0,latent.vars = c("nCount_RNA","orig.ident"))
+
+return(subset_DE_obj_MAST)}
+
+
+cell_names
+
+cell_DE_res<-list()
+for (i in seq_along(cell_names)) {
+  print(cell_names[[i]])
+  cell_type<-cell_names[[i]]
+  tmp<-do_mast(de_obj = hypo.integrated, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  cell_DE_res[[i]]<-tmp
+  }
+
+
+cell_DE_res
+
+
+saveRDS(cell_DE_res, "DE_res_all_cells_sample_effect_20210817.RDS")
+
+write_csv(cell_DE_res_merge, "Supplementary_Table_4_DE_genes_per_cluster.csv")
+```
+
+#Fig 3B
+```{r Plot_DE_per_cell}
+
+cell_DE_res<-readRDS("DE_res_all_cells_sample_effect_20210817.RDS")
+cols<-read_csv("color_pal.csv")
+cols$cell_type<-cols$cluster_name
+myColors <-cols$hex_code
+names(myColors) <- cols$cluster_name
+
+
+
+#bind data together
+cell_DE_res_merge<-bind_rows(cell_DE_res)
+cell_DE_res_merge<-group_by(cell_DE_res_merge, cell_type)
+
+
+
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, sig = ifelse(p_val_adj < 0.05 & avg_log2FC > .1 | p_val_adj < 0.05 & avg_log2FC < -.1, "Sig", "NS"))
+
+
+
+
+cell_DE_res_merge<-full_join(cell_DE_res_merge, cols, by = "cell_type")
+
+
+#set color to use
+cell_DE_res_merge<-mutate(cell_DE_res_merge, col_use = ifelse(sig== "Sig", hex_code, "dark gray"))
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, updown = ifelse(p_val_adj < 0.05 & avg_log2FC >=0.1, "Upregulated with age", ifelse(p_val_adj < 0.05 & avg_log2FC <= -0.1, "Downregulated with age", "NS")))
+
+de_res_table<-table(cell_DE_res_merge$updown, cell_DE_res_merge$cell_type)
+de_res_table<-as.data.frame.matrix(de_res_table)
+
+
+#add color for sig points
+col_for_plot<-as.character(cell_DE_res_merge$col_use)
+table(col_for_plot)
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, alp_for_plot = ifelse(updown == "NS", 0.25, 1))
+                                                                   
+alp_for_plot<-cell_DE_res_merge$alp_for_plot
+
+x<-unique(cell_DE_res_merge$cell_type)
+
+
+cell_DE_res_merge$cell_type <- factor(cell_DE_res_merge$cell_type, levels = x)
+
+table(cell_DE_res_merge$fillyn,cell_DE_res_merge$cell_type )
+
+
+cell_DE_res_merge<-group_by(cell_DE_res_merge, cell_type) 
+
+
+#get top and bottom 5 DE genes for each type
+sigs<-dplyr::filter(cell_DE_res_merge, sig == "Sig")
+top_5<-sigs %>% group_by(cell_type) %>% slice_max(order_by = avg_log2FC, n = 5)
+bot_5<-sigs %>% group_by(cell_type) %>% slice_min(order_by = avg_log2FC, n = 5)
+five<-dplyr::full_join(top_5, bot_5)
+
+
+cell_DE_res_merge$cell_type<-factor(cell_DE_res_merge$cell_type, levels = c("Astrocyte","Endothelial Cell","Ependymocyte", "Macrophage","Microglia","Neuron","Oligodendrocyte","OPC","Pericyte","Tanycyte","VLMC"))
+
+
+
+cell_DE_res_merge_sig<-dplyr::filter(cell_DE_res_merge, updown != "NS")
+cell_DE_res_merge_not<-dplyr::filter(cell_DE_res_merge, updown == "NS")
+
+
+col_for_plot<-cell_DE_res_merge_sig$hex_code
+
+
+strip<-ggplot(cell_DE_res_merge, aes( x = cell_type, y = avg_log2FC,)) +
+   geom_jitter_rast(data=cell_DE_res_merge[cell_DE_res_merge$updown == "NS",],color="dark grey", width = 0.2, height = 0.0, alpha = .25, shape = 1, raster.dpi = 300) +
+    geom_jitter_rast(data=cell_DE_res_merge[cell_DE_res_merge$updown != "NS",],color=col_for_plot, width = 0.2, height = 0.0, alpha = 1, shape = 1, raster.dpi = 300) + theme_bw() +
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = "none", axis.line = element_line(colour = "black"),
+panel.border = element_blank()) + 
+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+ geom_text_repel(data = five,label = five$gene, fontface = "italic", size = 2, max.overlaps = Inf) + theme(axis.title.x = element_blank(), axis.title.y = element_blank(), axis.text.x = element_text(size = 6, angle = 45))
+
+strip
+            
+
+```
+
+
+##GSEA 
+
+```{r GSEA}
+
+
+library(biomaRt)
+library(fgsea)
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+
+pathways.hallmark <- gmtPathways("h.all.v7.2.symbols.gmt")
+
+
+inp<-readRDS("DE_res_all_cells_sample_effect_20210817.RDS")
+
+set.seed(1000)
+
+run_gsea <- function(DE_dat, pathway1, cell_name) {
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = DE_dat$gene , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+DE_dat$MGI.symbol<-as.character(DE_dat$gene)
+DE_dat<-full_join(genesV2, DE_dat, by = "MGI.symbol")
+DE_dat<-dplyr::select(DE_dat, HGNC.symbol, avg_log2FC)
+  res2 <- DE_dat %>% 
+  dplyr::select(HGNC.symbol, avg_log2FC) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(HGNC.symbol) %>% 
+  summarize(stat=mean(avg_log2FC))
+  res2<-arrange(res2, stat)
+  ranks <- deframe(res2)
+  head(ranks, 20)
+  daty<-as_tibble(fgsea(pathways=pathway1, stats=ranks, nperm=1000))
+  daty$cell_type<-cell_name
+  daty<-dplyr::filter(daty, padj < 0.1)
+  daty<-mutate(daty,leading_edge_count = lengths(daty$leadingEdge))
+  return(daty)
+}
+
+
+gsea_res_hallmark<-list()
+
+
+for (i in seq_along(inp)) {
+  print(inp[[i]])
+  inp[[i]]$MGI.symbol<-inp[[i]]$gene
+  cell_type<-inp[[i]]$cell_type[1]
+  tmp<-run_gsea(inp[[i]], pathways.hallmark, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  gsea_res_hallmark[[i]]<-tmp
+  }
+  
+
+gsea_res_hallmark
+
+saveRDS(gsea_res_hallmark, "all_cells_hallmark_GSEA.RDS")
+```     
+   
+#Fig 3D
+```{r plot_GSEA, message=FALSE, warning=FALSE}  
+
+cell_types<- c("Astrocyte","Endothelial Cell","Ependymocyte", "Macrophage","Microglia","Neuron","Oligodendrocyte","OPC","Pericyte","Tanycyte",
+"VLMC")
+
+
+
+
+
+cell_types<-as_tibble(cell_types)
+cell_types<-dplyr::select(cell_types, cell_type = value)
+
+cell_types
+
+#make giant dataframe of all hallmark results
+gsea_res_hallmark_merge<-bind_rows(gsea_res_hallmark)
+
+
+gsea_res_hallmark_merge<-full_join(gsea_res_hallmark_merge, cell_types)
+gsea_res_hallmark_merge
+
+
+#"complete"" the dataframe, this will put in NAs for cell_type/description combos that don't already exist
+gsea_res_hallmark_merge<-complete(gsea_res_hallmark_merge, pathway, cell_type)
+gsea_res_hallmark_merge
+
+#X: cell_type
+#Y: Description
+#Z: NES
+library(viridis)
+
+
+gsea_res_hallmark_merge$cell_type <- factor(gsea_res_hallmark_merge$cell_type, levels = rev(c("Astrocyte","Endothelial Cell","Ependymocyte", "Macrophage","Microglia","Neuron","Oligodendrocyte","OPC","Pericyte","Tanycyte","VLMC")))
+
+
+
+gsea_res_hallmark_merge$pathway<-str_replace(gsea_res_hallmark_merge$pathway, "HALLMARK_", "")
+gsea_res_hallmark_merge$pathway<-str_replace_all(gsea_res_hallmark_merge$pathway, "_", " ")
+gsea_res_hallmark_merge$pathway<-str_to_title(gsea_res_hallmark_merge$pathway)
+
+
+gsea_res_hallmark_merge$cell_type
+
+gsea_res_hallmark_merge<-gsea_res_hallmark_merge %>% dplyr::filter(!is.na(pathway))
+
+#heatmap
+gsea_hallmark_heatmap <- ggplot(data = gsea_res_hallmark_merge, mapping = aes(x = pathway, y = cell_type, fill = NES)) +
+  geom_tile(colour="white",size=0.25) +
+  xlab(label = "Sample") +
+  scale_fill_viridis(option="magma", na.value = "grey90") +
+  coord_equal() +
+  theme(plot.background=element_blank()) 
+
+gsea_hallmark_heatmap<-gsea_hallmark_heatmap+ theme(axis.text.x=element_text(angle=45, hjust=1))
+
+gsea_hallmark_heatmap
+```
+
+##Coefficient of variation analysis
+
+#Fig 3C
+```{r COV, message=FALSE, warning=FALSE}
+# CV = SD/Mean. The CV will give you the extent of variability in your gene expression dataset
+
+library(reshape2)
+
+
+
+
+#makes a matrix with cell names as colnames and gene as rownames
+ctx<-GetAssayData(hypo.integrated, slot = "data", assay = "RNA")
+ctx<-t(ctx)
+
+dim(ctx)
+
+ctx<-as_tibble(ctx, rownames = "cell_name")
+ctx
+
+
+
+id<-FetchData(hypo.integrated, vars = c("ident", "stim"), slot = "data")
+id<-as_tibble(id, rownames= "cell_name")
+#id
+id<-mutate(id, group= paste(ident, stim, sep = "_"))
+id
+
+ctx<-full_join(ctx, id, by = "cell_name")
+
+#ctx<-dplyr::select(ctx, cell_name, -ident, - stim)
+
+
+#gets coefficient of variation for each gene per group
+covfun<-function(x) {sd(x)/mean(x)}
+
+
+covres<-group_by(ctx, group) %>%
+summarise(across(where(is.numeric), ~ covfun(.x)))
+covres   
+
+
+meltcovres <- melt(covres,id.vars="group")
+meltcovres <-meltcovres  %>%
+  separate(group, c("cell_type", "stim"), "_")
+
+meltcovres$stim<-factor(meltcovres$stim, levels = c("Young", "Aged"))
+
+# grouped boxplot
+covPlot<-ggplot(meltcovres, aes(x=cell_type, y=value, fill=stim)) + 
+    geom_boxplot() + theme_bw() + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"),panel.border = element_blank(), axis.text.x=element_text(angle=45, hjust=1), legend.position = c(0.95, 0.85)) + theme(aspect.ratio=1)
+covPlot
+
+meltcovres
+
+library(rstatix)
+
+wilcox_res<-meltcovres %>%
+  group_by(cell_type) %>%
+  wilcox_test(value ~ stim) %>%
+  adjust_pvalue(method = "bonferroni") %>%
+  add_significance("p.adj")
+              
+
+wilcox_res<-mutate(wilcox_res, sig = ifelse(p.adj < 0.05 & p.adj > 0.01, "*", ifelse(p.adj< 0.01 & p.adj > 0.001, "**", ifelse(p.adj < 0.001, "***", "NS"))))
+
+wilcox_res
+
+
+```
+
+```{r fig3, message=FALSE, warning=FALSE}
+
+library(cowplot)
+
+
+strip<-strip + theme(axis.title.x = element_blank(), axis.title.y = element_blank(), axis.text.x = element_text(size = 6, angle = 45))
+
+strip
+gsea_hallmark_heatmap<-gsea_hallmark_heatmap + theme(axis.title.x = element_blank(), axis.title.y = element_blank(), axis.text.x = element_text(size = 6, angle = 45)) + coord_equal()
+
+x<- bulk_volcano + theme(aspect.ratio=1)
+x
+dev.off()
+
+p2<-plot_grid(x,strip, align = "h", rel_widths = c(1, 1.5))
+   
+
+p2      
+p3<-plot_grid(covPlot, gsea_hallmark_heatmap, align = "h", rel_widths = c(1, 1.5))
+
+p3
+p4<-plot_grid(p2, p3, nrow =2)
+p4
+```
+
+##CellphoneDB
+
+```{r cpdb_1, message=FALSE, warning=FALSE}
+
+
+### If you are using a mouse data, then its needed to convert the gene names to human orthologs
+
+#did this on oscar
+library(tidyverse)
+library(Seurat)
+
+library(biomaRt)
+
+hypo.int<-readRDS("hypo.integrated.final.20210719.RDS")
+
+
+
+human = useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useEnsembl("ensembl", dataset = "mmusculus_gene_ensembl")
+
+
+
+goi<-rownames(hypo.int@assays$RNA@data)
+
+
+genesV2<-getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = goi, mart = mouse, attributesL = c("hgnc_symbol","hgnc_id",'ensembl_gene_id'),martL = human, verbose = FALSE, uniqueRows = TRUE, bmHeader=TRUE)
+
+colnames(genesV2)<-c("gene", "hgng.symbol", "id", "Gene.stable.ID")
+
+all_data<-as_tibble(hypo.int@assays$RNA@data, rownames = "gene")
+
+
+aged_dat<-subset(hypo.int, stim == "Aged")
+aged_dat<-as_tibble(aged_dat@assays$RNA@data, rownames = "gene")
+aged_dat<-left_join(aged_dat, genesV2, by = "gene")
+gene_aged<-dplyr::select(aged_dat, gene, Gene.stable.ID)
+gene_aged<-drop_na(gene_aged)
+aged_dat<-dplyr::filter(aged_dat, gene %in% gene_aged$gene)
+aged_dat<-relocate(aged_dat, Gene.stable.ID)
+aged_dat<-dplyr::select(aged_dat, -c("gene", "hgng.symbol", "id"))
+write.table(aged_dat, 'counts_aged.txt', row.names=FALSE, col.names=TRUE, quote=FALSE,sep="\t")
+
+
+young_dat<-subset(hypo.int, stim == "Young")
+young_dat<-as_tibble(young_dat@assays$RNA@data, rownames = "gene")
+young_dat<-left_join(young_dat, genesV2, by = "gene")
+gene_young<-dplyr::select(young_dat, gene, Gene.stable.ID)
+gene_young<-drop_na(gene_young)
+young_dat<-dplyr::filter(young_dat, gene %in% gene_young$gene)
+young_dat<-relocate(young_dat, Gene.stable.ID)
+young_dat<-dplyr::select(young_dat, -c("gene", "hgng.symbol", "id"))
+write.table(young_dat, 'counts_young.csv', row.names=FALSE, col.names=TRUE, quote=FALSE,sep="\t")
+
+
+## If the cluster names are categorical, you will need to convert it to numerical
+meta<-hypo.int@meta.data
+meta<-as_tibble(meta, rownames = "Cell_ID")
+meta$group<-factor(meta$group, levels = c("Astrocyte","Endothelial Cell","Ependymocyte", "Macrophage","Microglia","Neuron","Oligodendrocyte","OPC","Pericyte","Tanycyte","VLMC"))
+
+levels(meta$group)<-c("1","2","3", "4","5","6","7","8","9","10","11")
+meta$group<-as.numeric(meta$group)
+meta$group
+
+aged_meta<-dplyr::filter(meta, stim == "Aged")
+aged_meta<-dplyr::select(aged_meta,Cell_ID, group)
+write.table(aged_meta, 'metadata_aged.txt', row.names=FALSE, quote =F, sep = "\t")
+
+young_meta<-dplyr::filter(meta, stim == "Young")
+young_meta<-dplyr::select(young_meta,Cell_ID, group)
+write.table(young_meta, 'metadata_young.txt', row.names=FALSE, quote =F, sep = "\t")
+
+
+```
+
+
+
+#Fig S2A
+```{r cpdb_2, message=FALSE, warning=FALSE}
+
+###
+
+
+#prep aged data to plot
+setwd("~/Desktop/single_cell_sequencing_paper/cellphonedb/")
+sig_res_aged<-read_tsv("sig_res_aged.txt")
+sig_res_aged<-pivot_longer(sig_res_aged, -c(1:11), names_to = "cell_pair", values_to = "mean")
+
+#sig_res_aged<-dplyr::select(sig_res_aged,id_cp_interaction, interacting_pair, cell_pair, mean )
+sig_res_aged$match_var<-paste(sig_res_aged$interacting_pair, sig_res_aged$cell_pair, sep = "_")
+
+aged_pvals<-read_tsv("pvals_aged.txt")
+aged_pvals<-pivot_longer(aged_pvals, -c(1:11), names_to = "cell_pair", values_to = "p_val")
+#aged_pvals<-dplyr::select(aged_pvals,id_cp_interaction, interacting_pair, cell_pair, p_val )
+aged_pvals$match_var<-paste(aged_pvals$interacting_pair, aged_pvals$cell_pair, sep = "_")
+plot_aged<-left_join(sig_res_aged,aged_pvals)
+plot_aged<-dplyr::filter(plot_aged, cell_pair != "rank")
+plot_aged$p_val[plot_aged$p_val==0] <- 1e-323
+plot_aged$stim<-"Aged"
+
+
+
+#prep young data
+sig_res_young<-read_tsv("sig_res_young.txt")
+sig_res_young<-pivot_longer(sig_res_young, -c(1:11), names_to = "cell_pair", values_to = "mean")
+#sig_res_young<-dplyr::select(sig_res_young,id_cp_interaction, interacting_pair, cell_pair, mean )
+sig_res_young$match_var<-paste(sig_res_young$interacting_pair, sig_res_young$cell_pair, sep = "_")
+
+table(young_pvals$p_val)
+young_pvals<-read_tsv("pvals_young.txt")
+young_pvals<-pivot_longer(young_pvals, -c(1:11), names_to = "cell_pair", values_to = "p_val")
+#young_pvals<-dplyr::select(young_pvals,id_cp_interaction, interacting_pair, cell_pair, p_val )
+young_pvals$match_var<-paste(young_pvals$interacting_pair, young_pvals$cell_pair, sep = "_")
+plot_young<-left_join(sig_res_young,young_pvals)
+plot_young<-dplyr::filter(plot_young, cell_pair != "rank")
+plot_young$p_val[plot_young$p_val==0] <- 1e-323
+
+plot_young$stim<-"Young"
+
+
+
+
+#combine
+
+
+plot_cpdb<-bind_rows(plot_aged, plot_young)
+
+#add -log10pval for plot
+plot_cpdb<-mutate(plot_cpdb, pval_plot = -log10(p_val))
+
+
+
+
+
+
+#keep only interactions between astrocytes, microglia, and neurons
+
+
+#int_keep<-c("1|5", "1|6", "5|1" , "5|6", "6|1", "6|5")
+
+int_keep<-c("1|6" , "5|6", "7|6", "10|6")
+
+plot_cpdb<-dplyr::filter(plot_cpdb, cell_pair %in% int_keep )
+plot_cpdb
+
+
+plot_cpdb$cell_pair<-str_replace(plot_cpdb$cell_pair, "10", "Tanycyte")
+plot_cpdb$cell_pair<-str_replace(plot_cpdb$cell_pair, "1", "Astrocyte")
+plot_cpdb$cell_pair<-str_replace(plot_cpdb$cell_pair, "5", "Microglia")
+plot_cpdb$cell_pair<-str_replace(plot_cpdb$cell_pair, "6", "Neuron")
+plot_cpdb$cell_pair<-str_replace(plot_cpdb$cell_pair, "7", "Oligodendrocyte")
+
+
+
+#find all interacting pairs that are sig in at least one cell pair
+x<-plot_cpdb %>%
+  group_by(interacting_pair) %>%
+  summarise(tot= sum(mean, na.rm=TRUE)) %>%
+  filter(tot != 0)
+
+plot_cpdb
+
+#filter plot tibble
+
+plot_cpdb<-dplyr::filter(plot_cpdb,interacting_pair %in%  x$interacting_pair)
+
+
+##add columns to make plotting easier
+
+plot_cpdb<-plot_cpdb %>% separate(cell_pair, c("cellA", "cellB"), "[|]", remove = F)
+plot_cpdb$cellB
+
+
+
+plot_cpdb$stim<-factor(plot_cpdb$stim, levels = c( "Young", "Aged"))
+plot_cpdb$int_plot<-paste(plot_cpdb$stim, plot_cpdb$cell_pair, sep = "_") 
+
+
+
+
+
+#filter for only receptor-ligand interactions
+
+#make variable to filter by 
+plot_cpdb<-mutate(plot_cpdb, filter_col = paste(receptor_a, receptor_b, sep = "_"))
+plot_cpdb$filter_col
+
+
+#keep interactions in which direction can be inferred  
+plot_cpdb<-dplyr::filter(plot_cpdb, filter_col == "FALSE_TRUE" | filter_col == "TRUE_FALSE")
+
+
+colnames(plot_cpdb)
+
+#reorder ligand receptor pairs
+
+
+plot_cpdb<-plot_cpdb %>% separate(interacting_pair, c("partnerA", "partnerB"), "_", remove = F, extra = "merge")
+
+
+#reorder ligand receptor so ligand is always first
+plot_cpdb<-mutate(plot_cpdb, reord = ifelse(receptor_a == TRUE, paste(partnerB, partnerA, sep = "_"), interacting_pair))
+
+
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+y_ord<-read.csv("ligand_receptor_order.csv")
+y_ord<-y_ord$ligand_receptor
+y_ord
+
+plot_cpdb$reord<-factor(plot_cpdb$reord, levels = y_ord)
+
+
+
+####
+
+ggplot(data = plot_cpdb, aes(x = stim, y = reord, color = p_val, size = mean )) + scale_color_viridis(limits=c(0, 0.05)) +
+  geom_point() +
+  facet_wrap(~cellA, ncol = 4) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+theme(panel.spacing = unit(.1, "lines"))
+
+
+```
+
+
+
+
+#Figure 4D
+```{r microviolin, message=FALSE, warning=FALSE}
+
+
+
+# Define an order of cluster identities
+my_levels <- c("Young", "Aged")
+
+# Relevel object@ident
+micro$stim <- factor(x = micro$stim, levels = my_levels)
+
+
+micro<-subset(hypo.integrated, idents = "Microglia")
+DefaultAssay(micro)<-"RNA"
+  
+
+
+vio_theme<-theme(legend.position = "none", axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(), 
+        plot.title = element_text(size=10), 
+        axis.title.y=element_blank(), 
+        axis.text.y=element_text(size=10))
+
+p1<-VlnPlot(micro, features = "C1qb", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p2<-VlnPlot(micro, features = "Csf1r", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p3<-VlnPlot(micro, features = "Cst3", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p4<-VlnPlot(micro, features = "Cx3cr1", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+
+
+homeostatic<-plot_grid(p1,p2,p3,p4, ncol = 1)
+
+
+p5<-VlnPlot(micro, features = "Apoe", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p6<-VlnPlot(micro, features = "B2m", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p7<-VlnPlot(micro, features = "Fth1", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p8<-VlnPlot(micro, features = "Tyrobp", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+dam1<-plot_grid(p5,p6,p7,p8, ncol = 1)
+
+
+
+
+p9<-VlnPlot(micro, features = "Cd9", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p10<-VlnPlot(micro, features = "Timp2", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p11<-VlnPlot(micro, features = "Trem2", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+p12<-VlnPlot(micro, features = "Cst7", split.by = "stim") + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + vio_theme 
+
+dam2<-plot_grid(p9,p10,p11,p12, ncol = 1)
+
+
+
+vlns<-plot_grid(homeostatic, dam1, dam2, ncol =3)
+
+vlns
+
+
+
+micro_DE<-dplyr::filter(cell_DE_res_merge, cell_type == "Microglia")
+
+micro_DE<-mutate(micro_DE, sig = ifelse(p_val_adj < 0.05 & avg_log2FC > .1 | p_val_adj < 0.05 & avg_log2FC < -.1, "Sig", "NS"))
+micro_DE<-mutate(micro_DE, star = ifelse(sig == "Sig" & p_val_adj <= 0.05 & p_val_adj >= 0.01, "*",
+ifelse(sig == "Sig" & p_val_adj <= 0.01 & p_val_adj >= 0.001, "**",
+ifelse(sig == "Sig" & p_val_adj <= 0.001, "***", ""))))
+
+
+
+lis<-c("C1qb","Csf1r","Cst3","Cst3","Apoe","B2m","Fth1","Tyrobp","Cd9","Timp2","Trem2","Cst7")
+
+micro_DE<-dplyr::filter(micro_DE, gene %in% lis)
+
+
+
+
+
+
+
+```
+
+#Fig S3
+```{r s3, message=FALSE, warning=FALSE}
+
+
+dat<-read.csv("microglia_qpcr.csv")
+dat<-dat[,1:8]
+dat$Age<-factor(dat$Age, levels = c("Young", "Middle", "Aged"))
+
+ggplot(data=dat, aes(x=Age, y=APOE)) +geom_point()
+
+
+
+
+
+
+dat
+apoe_set<-dplyr::select(dat,Age, APOE )
+
+x<-lm(APOE~Age, data = apoe_set)
+summary(x)
+
+plot(dat$Ord, dat$APOE)
+abline(lm(dat$APOE ~ dat$Ord))
+
+
+
+x<-lm(Lyz2~Age, data = dat)
+summary(x)
+
+dat
+plot(dat$Lyz2, dat$Age)
+dev.off()
+
+
+fit1 <- lm(Lyz2 ~ Age, data = dat)
+summary(fit1)
+
+
+
+p<-dat %>% 
+    ggplot(aes(Age, Lyz2))+
+    geom_point() + 
+    stat_smooth(method = "lm", col = "red")
+p
+
+
+
+
+x<-lm(CX3CR1~Age, data = dat)
+summary(x)
+
+
+kruskal.test(APOE~Age, data = apoe_set)
+
+# Compute the analysis of variance
+res.aov <- aov(APOE ~ Age, data = apoe_set)
+# Summary of the analysis
+summary(res.aov)
+
+TukeyHSD(res.aov)
+
+
+
+```
+
+
+##Split Violin Function From StackOverflow
+
+```{r violin, message=FALSE, warning=FALSE}
+
+GeomSplitViolin <- ggproto("GeomSplitViolin", GeomViolin, 
+                           draw_group = function(self, data, ..., draw_quantiles = NULL) {
+  data <- transform(data, xminv = x - violinwidth * (x - xmin), xmaxv = x + violinwidth * (xmax - x))
+  grp <- data[1, "group"]
+  newdata <- plyr::arrange(transform(data, x = if (grp %% 2 == 1) xminv else xmaxv), if (grp %% 2 == 1) y else -y)
+  newdata <- rbind(newdata[1, ], newdata, newdata[nrow(newdata), ], newdata[1, ])
+  newdata[c(1, nrow(newdata) - 1, nrow(newdata)), "x"] <- round(newdata[1, "x"])
+
+  if (length(draw_quantiles) > 0 & !scales::zero_range(range(data$y))) {
+    stopifnot(all(draw_quantiles >= 0), all(draw_quantiles <=
+      1))
+    quantiles <- ggplot2:::create_quantile_segment_frame(data, draw_quantiles)
+    aesthetics <- data[rep(1, nrow(quantiles)), setdiff(names(data), c("x", "y")), drop = FALSE]
+    aesthetics$alpha <- rep(1, nrow(quantiles))
+    both <- cbind(quantiles, aesthetics)
+    quantile_grob <- GeomPath$draw_panel(both, ...)
+    ggplot2:::ggname("geom_split_violin", grid::grobTree(GeomPolygon$draw_panel(newdata, ...), quantile_grob))
+  }
+  else {
+    ggplot2:::ggname("geom_split_violin", GeomPolygon$draw_panel(newdata, ...))
+  }
+})
+
+geom_split_violin <- function(mapping = NULL, data = NULL, stat = "ydensity", position = "identity", ..., 
+                              draw_quantiles = NULL, trim = TRUE, scale = "area", na.rm = FALSE, 
+                              show.legend = NA, inherit.aes = TRUE) {
+  layer(data = data, mapping = mapping, stat = stat, geom = GeomSplitViolin, 
+        position = position, show.legend = show.legend, inherit.aes = inherit.aes, 
+        params = list(trim = trim, scale = scale, draw_quantiles = draw_quantiles, na.rm = na.rm, ...))
+}
+
+```
+
+
+
+#Fig 5A,B
+```{r xist_violin, message=FALSE, warning=FALSE}
+
+
+DefaultAssay(hypo.integrated)<-"RNA"
+
+cell_DE_res<-readRDS("DE_res_all_cells_sample_effect_20210817.RDS")
+cols<-read_csv("color_pal.csv")
+cols$cell_type<-cols$cluster_name
+myColors <-cols$hex_code
+names(myColors) <- cols$cluster_name
+
+
+
+#bind data together
+cell_DE_res_merge<-bind_rows(cell_DE_res)
+cell_DE_res_merge<-group_by(cell_DE_res_merge, cell_type)
+
+
+
+
+cell_DE_res_merge<-mutate(cell_DE_res_merge, sig = ifelse(p_val_adj < 0.05 & avg_log2FC > .1 | p_val_adj < 0.05 & avg_log2FC < -.1, "Sig", "NS"))
+
+
+
+
+cell_DE_res_merge<-full_join(cell_DE_res_merge, cols, by = "cell_type")
+
+
+
+
+
+
+xic_genes<-c("Xist", "Tsix", "Jpx","Ftx", "Cdk8")
+
+
+
+
+escapees<-read_csv("berletch_2015_all_escapees.csv")
+
+
+escape_gene_list<-unique(escapees$Gene)
+total_list<-c(escape_gene_list, "Dnmt3a",
+"Dnmt3b",
+"Dxpas34",
+"Jpx",
+"Rnf12",
+"Tsix",
+"Xist",
+"Xite",
+"Xpr", 
+"Tmem164")
+
+length(total_list)
+
+
+
+x_escape_res<-dplyr::filter(cell_DE_res_merge, gene %in% total_list)
+unique(x_escape_res$gene)
+
+x_escape_res<-dplyr::filter(x_escape_res, sig == "Sig")
+x_escape_res<-arrange(x_escape_res, gene)
+
+
+gene_escape_sig<-unique(x_escape_res$gene)
+gene_escape_sig
+
+gene_escape_score<-dplyr::filter(cell_DE_res_merge, gene %in% gene_escape_sig)
+
+gene_escape_score<-mutate(gene_escape_score, star = ifelse(sig == "Sig" & p_val_adj <= 0.05 & p_val_adj >= 0.01, "*",
+ifelse(sig == "Sig" & p_val_adj <= 0.01 & p_val_adj >= 0.001, "**",
+ifelse(sig == "Sig" & p_val_adj <= 0.001, "***", ""))))
+
+
+
+
+xic_theme<- theme(axis.title.x = element_blank(), 
+                    #plot.title = element_blank(),
+                    title =element_text(size=8),
+                    axis.title.y = element_blank(),
+                    axis.text.x = element_blank(),
+                    plot.margin = unit(c(0, 0, 0, 0), "cm"),
+                    legend.position = "none",
+                  panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank(),
+                  axis.line = element_line(colour ="black"),
+                  panel.border = element_blank(),
+                  axis.ticks.x=element_blank())
+
+
+#make data table
+dat<- FetchData(object = hypo.integrated, vars = gene_escape_sig, slot = "data")
+
+dat<-as_tibble(dat, rownames = "cell_ID")
+dat
+meta<-hypo.integrated@meta.data
+meta<-as_tibble(meta, rownames = "cell_ID")
+
+dat<-full_join(dat, meta, by = "cell_ID")
+
+
+gene_escape_score
+
+make_volcano<-function(gene_escape_score, goi, dat) {
+
+  
+temp<-dplyr::select(dat, cell_ID, "val" = goi, stim, group)
+temp$stim<-factor(temp$stim, levels = c("Young", "Aged"))
+
+scor<-dplyr::filter(gene_escape_score, gene == goi)
+
+temp$group<-factor(temp$group, levels = c("Astrocyte","Endothelial Cell","Ependymocyte", "Macrophage","Microglia","Neuron","Oligodendrocyte","OPC","Pericyte","Tanycyte","VLMC"))
+
+
+p <- ggplot(temp, aes(group, val, fill = stim, label))
+p<-p + geom_split_violin() + theme_bw() + xic_theme + scale_fill_manual(values=c("Young" = "#25838E", "Aged" = "#D43D4F")) + geom_text(data= scor, aes(x = cell_type, y = 5.5, label = star), inherit.aes = F) +
+coord_cartesian(ylim = c(0, 6))
+
+return(p)}
+
+
+
+
+p1<-make_volcano(gene_escape_score,"Ftx", dat)
+p2<-make_volcano(gene_escape_score,"Jpx", dat)
+p3<-make_volcano(gene_escape_score,"Tsix", dat)
+p4<-make_volcano(gene_escape_score,"Xist", dat)
+p5<-make_volcano(gene_escape_score,"Cdk8", dat)
+
+plot_a<-ggarrange(p1,p2,p3,p4,p5, ncol = 1, labels = c("Ftx", "Jpx", "Tsix", "Xist", "Cdk8"))
+
+
+plot_a
+
+
+p5<-make_volcano(gene_escape_score,"5530601H04Rik", dat)
+p6<-make_volcano(gene_escape_score,"Dnmt3a", dat)
+p7<-make_volcano(gene_escape_score,"Firre", dat)
+p8<-make_volcano(gene_escape_score,"Gpm6b", dat)
+p9<-make_volcano(gene_escape_score,"Gprasp1", dat)
+p10<-make_volcano(gene_escape_score,"Huwe1", dat)
+p11<-make_volcano(gene_escape_score,"Idh3g", dat)
+p12<-make_volcano(gene_escape_score,"Kdm5c", dat)
+p13<-make_volcano(gene_escape_score,"Lamp2", dat)
+p14<-make_volcano(gene_escape_score,"Plp1", dat)
+p15<-make_volcano(gene_escape_score,"Tmsb4x", dat)
+
+
+plot_b<-ggarrange(p5,p6,p7,p8,p9,p10,p11, p12, p13,p14,p15, ncol = 1, labels =c("5530601H04Rik","Dnmt3a","Firre","Gpm6b", "Gprasp1", "Huwe1", "Idh3g", "Kdm5c", "Lamp2", "Plp1","Tmsb4x"))
+plot_b
+
+
+
+plot_grid(plot_a, plot_b)
+
+
+
+
+```
+
+#Fig 5B
+```{r qPCRplot, message=FALSE, warning=FALSE}
+
+qpcr_all<-read.csv("qpcr_xist_data.csv")
+
+qpcr_all<-as_tibble(qpcr_all)
+#qpcr<-dplyr::filter(qpcr_all, Sex == "Female")
+
+qpcr_all<-group_by(qpcr_all, Sex, Region, Age)
+
+qpcr_all<-mutate(qpcr_all, group_var = paste(Sex, Region, sep = "_"))
+qpcr_all$Sex
+
+qpcr_all<-group_by(qpcr_all, Age, group_var)
+
+library(rstatix)
+ttest_res_qpcr<-qpcr %>%
+  group_by(Region) %>%
+  t_test(Average ~ Age, paired = FALSE, alternative = "two.sided") %>%
+  adjust_pvalue(method = "bonferroni") %>%
+  add_significance("p.adj")
+
+ttest_res_qpcr
+
+
+
+qpcr_all$Age<-factor(qpcr_all$Age, levels = c("Young", "Old"))
+
+qpcr_all$group_var
+# grouped boxplot
+pcr_plot<-ggplot(qpcr_all, aes(x=group_var, y=Average, color=Age)) +
+geom_point(size = 4, position = position_jitter(w = 0.1, h = 0.0)) + theme_bw() + scale_color_manual(values=c("Young" = "#25838E", "Old" = "#D43D4F")) 
+pcr_plot
+
+
+
+```
+
+
+
+
+
+
+```{r x_chrom_DE, message=FALSE, warning=FALSE}
+
+
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl", host = "http://useast.ensembl.org/")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl", host = "http://useast.ensembl.org/")
+
+
+
+t2g<-getBM(attributes=c('ensembl_gene_id','external_gene_name', "chromosome_name",'start_position','end_position', "gene_biotype"), mart = mouse)
+
+
+
+t2g<-as_tibble(t2g)
+t2g<-dplyr::select(t2g,gene=external_gene_name, chromosome_name)
+t2g
+
+
+#chromosome_counts<-full_join(cell_DE_res_merge, t2g, by = "gene")
+table(chromosome_counts$chromosome_name)
+
+#boo<-dplyr::filter(chromosome_counts, chromosome_name == "Y")
+
+chromosome_counts<-left_join(bulk_MAST, t2g, by = "gene")
+dim(chromosome_counts)
+chromosome_counts<-chromosome_counts %>% filter(!is.na(cell_type))
+chroms_use<-c(1:19, "X")
+chromosome_counts<-chromosome_counts %>% filter(chromosome_name %in% chroms_use)
+
+table(chromosome_counts$chromosome_name)
+
+
+chromosome_counts$chromosome_name=="X"
+#chromosome_counts<- group_by(chromosome_counts, cell_type, chromosome_name )
+
+
+
+
+chromosome_counts<-mutate(chromosome_counts, chromosome_name = ifelse(chromosome_name  == "X", "X chromosome", "Autosome"))
+
+chromosome_counts<-mutate(chromosome_counts, updown = ifelse(p_val_adj < 0.5 & avg_log2FC >=0.1, "Upregulated with age", ifelse(p_val_adj < 0.5 & avg_log2FC <= -0.1, "Downregulated with age", "NS")))
+
+chromosome_counts_x<-dplyr::filter(chromosome_counts,chromosome_name == "X chromosome" )
+
+chromosome_counts_x
+
+count_dat<-chromosome_counts%>% dplyr::count(chromosome_name, updown)
+count_dat
+
+
+
+
+x_counts<-dplyr::filter(count_dat, chromosome_name == "X")
+x_counts<-pivot_wider(x_counts, names_from = updown, values_from = n, values_fill = 0)
+
+x_counts
+
+count_dat
+
+
+
+
+
+p1<-ggplot(data=count_dat, aes(x=cell_type, y=n, fill=updown)) + 
+  geom_bar(position="dodge", stat="identity") +
+  scale_fill_manual(values = c("#A6BF86","#E49100","#5FABBD")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+                     panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+p1
+
+count_dat
+
+p2<-ggplot(data=count_dat_X, aes(x=chrom, y=n, fill=updown)) + 
+  geom_bar(position="dodge", stat="identity") +
+  scale_fill_manual(values = c("#A6BF86","#E49100","#5FABBD")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+                     panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+plot_grid(p1,p2)
+count_dat
+
+
+count_dat<-pivot_wider(count_dat, names_from = updown, values_from = n)
+
+count_dat
+
+
+name_use<-count_dat$chromosome_name
+x<-pivot_longer(count_dat, -chromosome_name)
+set.seed(1234)
+
+prop_test(x, )
+x
+y<-chisq.test(x)
+y
+y$stdres
+y$observed
+y$expected
+
+#standardized residuals over/under 1.96 are considered significant. 
+y$stdres
+y$residuals
+y$data.name
+
+y
+
+
+
+
+
+
+
+
+
+
+
+# Relevel object@ident
+Idents(hypo.integrated) <- factor(x = Idents(hypo.integrated), levels = levels)
+hypo.integrated$stim<-factor(hypo.integrated$stim, levels = c("Young", "Aged"))
+
+
+
+VlnPlot(hypo.integrated, features = "Kdm5c", split.by = "stim",split.plot = TRUE, pt.size=0)+  scale_fill_manual(values=c("Young" = "#F57670", "Aged" = "#6185CD"))
+
+
+VlnPlot(hypo.integrated, features = "Tsix", split.by = "stim",split.plot = TRUE, pt.size=0)+  scale_fill_manual(values=c("Young" = "#F57670", "Aged" = "#6185CD"))
+
+gene
+xic_res<-dplyr::filter(cell_DE_res_merge, gene == "Xist")
+xic_res
+
+xic_res<-dplyr::filter(cell_DE_res_merge, gene == "Ftx")
+xic_res
+
+xic_res<-dplyr::filter(cell_DE_res_merge, gene == "Tsix")
+xic_res
+
+```
+
+
+Fig 5B
+```{r qPCRplot, message=FALSE, warning=FALSE}
+
+qpcr_all<-read.csv("qpcr_xist_data.csv")
+
+qpcr_all<-as_tibble(qpcr_all)
+
+qpcr_all<-group_by(qpcr_all, Sex, Region, Age)
+
+qpcr_all<-mutate(qpcr_all, group_var = paste(Sex, Region, sep = "_"))
+qpcr_all
+
+qpcr_all<-group_by(qpcr_all, Age, group_var)
+
+library(rstatix)
+ttest_res_qpcr<-qpcr %>%
+  group_by(Region) %>%
+  t_test(Average ~ Age, paired = FALSE, alternative = "two.sided") %>%
+  adjust_pvalue(method = "bonferroni") %>%
+  add_significance("p.adj")
+
+ttest_res_qpcr
+
+
+
+qpcr_all$Age<-factor(qpcr_all$Age, levels = c("Young", "Old"))
+
+
+# grouped boxplot
+p1<-ggplot(qpcr_all, aes(x=group_var, y=Average, color=Age)) + 
+geom_jitter(size = 3, width = .20) + 
+  scale_color_manual(values=c("Young" = "#25838E", "Old" = "#D43D4F")) + theme_bw()
+p1
+
+
+
+
+```
+
+
+```{r immune_DE, message=FALSE, warning=FALSE}
+
+
+
+macro<-cell_DE_res[[4]]
+
+micro<-cell_DE_res[[5]]
+
+
+
+
+
+micro<-arrange(micro, avg_log2FC)
+micro$neg_log10_pval <- -log10(micro$p_val)
+micro$log_pval <- log(micro$p_val)
+
+
+#this labels as significant only genes with a FC >0.1 which is what was used in the Ximerakis paper 
+
+
+micro<-micro %>% mutate(label_2 = ifelse(p_val_adj < 0.05 & (avg_log2FC) >=.1 , "Sig Up", ifelse(p_val_adj < 0.05 & (avg_log2FC) <= -.1, "Sig Down", "NS")))
+
+table(micro$label_2)
+
+
+
+micro_volcano <- ggplot(micro, aes(x=avg_log2FC, y=neg_log10_pval)) +
+  labs( y="-log10(p-value)", 
+       x="Average Log2 Fold Change") + 
+  theme(plot.title=element_text(size=10,hjust=0.5),  # title
+        plot.subtitle=element_text(size=8,hjust=0.5),  # subtitle
+        axis.title.x=element_text(size=8),  # X axis title
+        axis.title.y=element_text(size=8, vjust=.5), # Y axis title
+        axis.text.x=element_text(size=8, angle = 30),  # X axis text
+        axis.text.y=element_text(size=8)) +  # Y axis text 
+  # x axis tick mark labels
+  theme(axis.text.x= element_text(colour="black",size =8 )) +
+  # y axis tick mark labels
+  theme(axis.text.y = element_text(colour="black",size =8)) +
+  theme(legend.position="bottom") +
+ # ylim(-10, 150) +
+  geom_point(data=micro[micro$label_2== "NS",],color="gray41",size=1.5) +
+  geom_point(data=micro[micro$label_2 != "NS",],color="mediumorchid3",size=1.5) + #make significant genes red 
+ geom_text_repel(aes(x=avg_log2FC, y=neg_log10_pval, label = gene)
+,data = micro[micro$label_2 != "NS", ], max.overlaps = Inf ) + 
+  xlim(-2, 2) +
+  ylim(-1, 28)
+micro_volcano<-micro_volcano +theme_bw() + theme(aspect.ratio=1) + theme(panel.grid = element_blank())
+
+micro_volcano
+macro<-arrange(macro, avg_log2FC)
+macro$neg_log10_pval <- -log10(macro$p_val)
+macro$log_pval <- log(macro$p_val)
+
+
+#this labels as significant only genes with a FC >0.1 which is what was used in the Ximerakis paper 
+
+
+macro<-macro %>% mutate(label_2 = ifelse(p_val_adj < 0.05 & (avg_log2FC) >=.1 , "Sig Up", ifelse(p_val_adj < 0.05 & (avg_log2FC) <= -.1, "Sig Down", "NS")))
+
+table(macro$label_2)
+
+
+
+macro_volcano <- ggplot(macro, aes(x=avg_log2FC, y=neg_log10_pval)) +
+  labs( y="-log10(p-value)", 
+       x="Average Log2 Fold Change") + 
+  theme(plot.title=element_text(size=10,hjust=0.5),  # title
+        plot.subtitle=element_text(size=8,hjust=0.5),  # subtitle
+        axis.title.x=element_text(size=8),  # X axis title
+        axis.title.y=element_text(size=8, vjust=.5), # Y axis title
+        axis.text.x=element_text(size=8, angle = 30),  # X axis text
+        axis.text.y=element_text(size=8)) +  # Y axis text 
+  # x axis tick mark labels
+  theme(axis.text.x= element_text(colour="black",size =8 )) +
+  # y axis tick mark labels
+  theme(axis.text.y = element_text(colour="black",size =8)) +
+  theme(legend.position="bottom") +
+ # ylim(-10, 150) +
+  geom_point(data=macro[macro$label_2== "NS",],color="gray41",size=1.5) +
+  geom_point(data=macro[macro$label_2 != "NS",],color="mediumorchid3",size=1.5) + #make significant genes red 
+ geom_text_repel(aes(x=avg_log2FC, y=neg_log10_pval, label = gene)
+,data = macro[macro$label_2 != "NS", ], max.overlaps = Inf ) + 
+   xlim(-2, 2) +
+  ylim(-1, 28)
+
+macro_volcano<-macro_volcano +theme_bw() + theme(aspect.ratio=1) + theme(panel.grid = element_blank())
+
+plot_grid(micro_volcano, macro_volcano, ncol = 2)
+
+
+
+```
+
+
+
+
+## Generating Hypo.Integrated Object, only neurons
+
+
+```{r seurat-workflow-neurons, message=FALSE, warning=FALSE}
+
+hypo.integrated<-readRDS("hypo.integrated.final.20210719.RDS")
+
+FeaturePlot(hypo.integrated, features = c("Xist", "Tsix"))
+
+hypo.neurons<- subset(hypo.integrated, idents = c("Neuron"), invert= F)
+DefaultAssay(hypo.neurons) <- "RNA"
+
+neuron_list<-SplitObject(hypo.neurons, split.by = "orig.ident")
+
+
+
+for (i in 1:length(neuron_list)) {
+    neuron_list[[i]] <- NormalizeData(neuron_list[[i]], verbose = FALSE)
+    neuron_list[[i]] <- FindVariableFeatures(neuron_list[[i]], selection.method = "vst", nfeatures = 5000, verbose = FALSE)
+}
+
+neuro.anchors <- FindIntegrationAnchors(object.list = neuron_list, dims = 1:30)
+neuro.integrated <- IntegrateData(anchorset = neuro.anchors, dims = 1:30)
+neuro.integrated
+
+#Normalize the data, identify variable features, and scale the data. 
+
+
+#integrated assay
+DefaultAssay(neuro.integrated) <- "integrated"
+neuro.integrated <- ScaleData(neuro.integrated, verbose = FALSE)
+neuro.integrated <- RunPCA(neuro.integrated, npcs = 30, verbose = FALSE)
+ElbowPlot(neuro.integrated)
+neuro.integrated<- FindNeighbors(neuro.integrated, dims = 1:30)
+neuro.integrated <- FindClusters(neuro.integrated, resolution = 0.5)
+neuro.integrated <- RunUMAP(neuro.integrated, reduction = "pca", dims = 1:30)
+DimPlot(neuro.integrated)
+
+
+
+
+FeaturePlot(neuro.integrated, features = c("nCount_RNA", "percent.mt", "nFeature_RNA"))
+
+
+#cluster 2 is low quality-- exclude from further analysis and re-cluster
+
+neuro.integrated<-subset(neuro.integrated, idents = c("2"), invert = TRUE)
+neuro.integrated <- RunPCA(neuro.integrated, npcs = 30, verbose = FALSE)
+ElbowPlot(neuro.integrated)
+neuro.integrated<- FindNeighbors(neuro.integrated, dims = 1:30)
+neuro.integrated <- FindClusters(neuro.integrated, resolution = 0.5)
+neuro.integrated <- RunUMAP(neuro.integrated, reduction = "pca", dims = 1:30)
+DimPlot(neuro.integrated)
+
+Idents(neuro.integrated)<-neuro.integrated@meta.data$integrated_snn_res.0.5
+
+
+
+DimPlot(neuro.integrated)
+
+FeaturePlot(neuro.integrated, features = c("Oxt"))
+
+FeaturePlot(neuro.integrated, features = c("nCount_RNA", "percent.mt", "nFeature_RNA"))
+
+
+DimPlot(neuro.integrated)
+
+
+neuro.markers <- FindAllMarkers(neuro.integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+topten<-neuro.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC) 
+
+
+
+
+top2.neuron<-neuro.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC) %>%  group_by(cluster) %>% 
+  mutate(markers = paste0(gene, collapse = "/")) %>% 
+  dplyr::slice(1) %>% dplyr::select(cluster, markers)
+top2.neuron
+
+
+hypo.markers.neuron<-full_join(neuro.markers,top2.neuron, by = "cluster" )
+hypo.markers.neuron
+
+
+DimPlot(neuro.integrated)
+
+new.cluster.ids <- top2.neuron$markers
+current.cluster.ids <- as.character(0:(length(unique(Idents(neuro.integrated)))-1))
+
+
+Idents(neuro.integrated) <- plyr::mapvalues(Idents(neuro.integrated), from = current.cluster.ids, to = new.cluster.ids) #name Idents with cluster markers
+
+#reorder with cluster tree
+neuro.integrated<-BuildClusterTree(
+  neuro.integrated,
+  assay = "RNA",
+  reorder = TRUE,
+  verbose = TRUE
+)
+
+DimPlot(neuro.integrated)
+
+
+table(Idents(neuro.integrated))
+
+x<-levels(Idents(neuro.integrated))
+x
+y<-c(1:35)
+y<-as.character(y)
+y
+z<-paste(y, x, sep = ". ")
+z
+
+neuro.integrated$subcluster<-Idents(neuro.integrated)
+
+neuro.integrated$subcluster<-plyr::mapvalues(neuro.integrated$subcluster, from = x, to = z)
+
+
+
+Idents(neuro.integrated)<-neuro.integrated$subcluster
+table(Idents(neuro.integrated))
+
+
+write.csv(hypo.markers.neuron, "Supplementary_Table_6.csv")
+
+#hypo.markers.neuron<-read.csv("~/Desktop/single_cell_sequencing_paper/Second_Submission/Draft_2021_10_15/Supplementary_Table_6_neuronal_cluster_markers.csv")
+
+
+
+
+saveRDS(neuro.integrated,"neuro.integrated.20210802.RDS")
+```
+
+
+#Fig 6A
+```{r seurat-workflow-neurons_2, message=FALSE, warning=FALSE}
+
+
+
+plot_1<-DimPlot(neuro.integrated) + coord_equal() 
+
+
+
+
+PlotClusterTree(neuro.integrated)
+
+Idents(neuro.integrated)
+
+data.tree <- Tool(object = neuro.integrated, slot = "BuildClusterTree")
+
+ape::plot.phylo(x = data.tree, direction = "left")
+
+
+
+
+DefaultAssay(neuro.integrated)<-"RNA"
+p2<-FeaturePlot(neuro.integrated,  features = c("Gad1"))+ coord_equal() + NoLegend()
+p3<-FeaturePlot(neuro.integrated,  features = c("Slc17a6")) + coord_equal() + NoLegend()
+plot_grid(p2, p3)       
+
+DefaultAssay(neuro.integrated)<-"RNA"
+p2<-FeaturePlot(neuro.integrated,  features = c("Gad1"))+ coord_equal() 
+p3<-FeaturePlot(neuro.integrated,  features = c("Slc17a6")) + coord_equal() 
+plot_grid(p2, p3)  
+
+
+  
+```
+
+
+
+```{r peptide_dotplot, message=FALSE}
+#hypo.neurons<-readRDS( "hypo.neurons.20210227.RDS")
+
+clustavg<-AverageExpression(neuro.integrated)
+clustdf<-as.data.frame(clustavg$RNA)
+clustdf<-t(clustdf)
+clustdf<-as_tibble(clustdf, rownames = "cluster")
+head(clustdf)
+dim(clustdf)
+
+
+
+
+
+peptide_genes <-c("Adcyap1",
+                  "Agt","Agrp",
+"Avp",
+"Calca",
+"Cartpt",
+"Cck",
+"Crh",
+"Gal",
+"Ghrh",
+"Grp",
+"Hcrt",
+"Kiss1",
+"Npvf",
+"Npy",
+"Nts",
+"Oxt",
+"Pdyn",
+"Pmch",
+"Pnoc",
+"Pomc",
+"Prl",
+"Prok2",
+"Qrfp",
+"Sst",
+"Tac1",
+"Tac2",
+"Th",
+"Trh",
+"Vgf",
+"Vip",
+"Foxb1",
+"Slc17a6", 
+"Cpne9", 
+"Pitx2", 
+"Lhx1", 
+"Lhx5", 
+"Cdh11", 
+"Sim1", 
+"Sim2",
+"Nkx2.1")
+
+
+
+peptide_genes
+peptide_genes_2<-dplyr::filter(peptide_genes, Symbol %in% colnames(clustdf))
+
+
+
+
+peptide_genes_2<-unique(peptide_genes_2$Symbol)
+
+
+peptide_genes_2
+
+
+df2<- clustdf %>% dplyr::select("cluster", peptide_genes_2) 
+df2
+
+df2$orig_cluster<-df2$cluster
+df2
+
+#x<-c("Slc6a4", "Chat", "Th")
+
+
+peptide_genes<-c("Adcyap1", "Agt", "Agrp","Avp","Bdnf", "Calca", "Cartpt","Cck", "Crh","Gal","Ghrh","Grp","Hcrt","Hdc", "Kiss1","Npvf", "Npy","Nts", "Oxt","Pdyn","Penk","Pmch","Pnoc","Pomc", "Prok2", "Qrfp","Sst","Tac1","Tac2", "Th", "Trh", "Vip")
+
+
+
+DefaultAssay(neuro.integrated)<-"RNA"
+DotPlot(neuro.integrated, features = peptide_genes)  + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_y_discrete(limits = rev(levels(Idents(neuro.integrated))))
+
+
+
+
+```
+
+
+##neuron scenic
+```{r SCENIC_prep_neurons, eval = FALSE}
+
+
+
+
+#https://htmlpreview.github.io/?https://github.com/aertslab/SCopeLoomR/blob/master/vignettes/SCopeLoomR_Seurat_tutorial.nb.html
+#prepare count matrix for pySCENIC CLI
+#all cells 
+
+
+
+
+build_loom(file.name = "neuro.integrated.20210825.loom",
+        dgem = neuro.integrated@assays$RNA@counts,
+        title = "neurons",
+        default.embedding = neuro.integrated@reductions$umap@cell.embeddings,
+        default.embedding.name = "umap")
+
+loom <- open_loom(file.path = "neuro.integrated.20210825.loom", mode = "r+")
+
+
+annot_df <-FetchData(object = neuro.integrated.20210825.loom, vars = c("subcluster", "stim"))
+annot_df$cell_name<-rownames(annot_df)
+
+subcluster_list <- as.list(as.character(annot_df$subcluster))
+names(subcluster_list) <- annot_df$cell_name
+
+stim_list <- as.list(as.character(annot_df$stim))
+names(stim_list) <- annot_df$cell_name
+stim_list
+
+
+
+
+add_col_attr(loom = loom, key = "stim",
+              value = neuro.integrated@meta.data$stim, as.annotation = TRUE)
+
+
+add_col_attr(loom = loom, key = "sample",
+              value = neuro.integrated@meta.data$orig.ident, as.annotation = TRUE)
+
+add_col_attr(loom = loom, key = "subcluster",
+              value = as.character(neuro.integrated@meta.data$subcluster, as.annotation = TRUE))
+
+close_loom(loom)
+```
+
+
+
+##generate meta-regulon list
+```{r SCENIC_1, eval = FALSE}
+
+
+setwd("~/Desktop/single_cell_sequencing_paper/neuron_output")
+library(SCopeLoomR)
+
+
+#count how often gene regulon pair occurs
+
+
+
+Regulon_Names<-tibble()
+for(i in 0:49) {
+  print(i)
+  pyScenicLoomFile <- paste(i, "_neuro.integrated.20210825_SCENIC.loom", sep = "")
+  loom <- open_loom(pyScenicLoomFile, mode="r")
+  regulons_incidMat <- get_regulons(loom, column.attr.name='Regulons')
+  regulons <- regulonsToGeneLists(regulons_incidMat)
+  close_loom(loom)
+  df<-enframe(regulons)
+  colnames(df)<- c("Regulon", "Gene_List")
+  df$iteration<-i
+  Regulon_Names<-bind_rows(Regulon_Names, df) }
+
+x<-Regulon_Names
+
+regct<-enframe(table(Regulon_Names$Regulon))
+regct<-dplyr::filter(regct, value >= 10)
+regct$name
+
+
+Regulon_Names<-dplyr::filter(Regulon_Names, Regulon %in% regct$name )
+Regulon_Names<-group_by(Regulon_Names, Regulon)
+Regulon_Names$Gene_List
+
+x<-as.list(Regulon_Names$Gene_List)
+names(x)<-Regulon_Names$Regulon
+x<-stack(x)
+x<-as_tibble(x)
+
+x <-group_by(x, ind)
+
+
+y <- dplyr::count(x, values)
+y <- dplyr:: filter(y , n >= 10)
+y <-group_by(y, ind)
+
+z<-group_split(y)
+
+reg.list<- list()
+
+for (i in seq_along(z)) {
+  reg<-z[[i]][1,1]
+  g<-as.list(z[[i]][2])
+  names(g) <- reg$ind
+  reg.list <- append(reg.list, g)
+}
+
+reg.list[1]
+
+
+
+setwd("~/Desktop/single_cell_sequencing_paper/")
+
+saveRDS(reg.list, "neuron_regulons_20210901.RDS")
+
+```
+
+##plot  regulon heatmap
+```{r SCENIC_2, eval = FALSE}
+
+regulons <- readRDS( "neuron_regulons_20210901.RDS")
+nCores <- 6
+
+
+
+
+neuron.subset<-subset(x = neuro.integrated, downsample = 500)
+
+exprMat<-neuron.subset@assays$RNA@counts
+# 1. Create rankings
+set.seed(101521)
+
+aucellRankings <- AUCell_buildRankings(exprMat, nCores=nCores, plotStats=TRUE)
+saveRDS(aucellRankings, "neuron_aucellrankings_20210901.RDS")
+
+aucellRankings<-readRDS("neuron_aucellrankings_20210901.RDS")
+
+#2. Calculate AUC
+regulonAUC <- AUCell_calcAUC(regulons, aucellRankings,nCores=nCores)
+regulonAUC 
+    
+  # Order the modules by similarity, for easier exploration in the upcoming steps & save
+  variableRegulons <- names(which(apply(getAUC(regulonAUC), 1, sd) > 0))
+  reguDist <-as.dist(1-cor(t(getAUC(regulonAUC)[variableRegulons,]), method="spear"))
+  reguClust <- hclust(reguDist, method="ward.D2")
+  regulonClusters <- setNames(dynamicTreeCut::cutreeDynamic(reguClust, distM=as.matrix(reguDist), verbose = FALSE), reguClust$labels)
+  regulonOrder <- reguClust$labels[reguClust$order]
+  regulonOrder <- regulonOrder[order(regulonClusters[regulonOrder], decreasing = TRUE)]
+  
+regulonAUC <- regulonAUC[regulonOrder,]
+  
+saveRDS(regulonAUC, "neuron_regulonAUC.RDS")
+# 3. Default thresholds
+
+cells_AUCellThresholds <- AUCell_exploreThresholds(regulonAUC, assignCells=TRUE, plotHist=FALSE, verbose=FALSE, nCores=nCores)
+#saveRDS(cells_AUCellThresholds, file=getIntName(scenicOptions, "aucell_thresholds"))
+    
+# Get cells assigned to each regulon
+regulonsCells <- getAssignments(cells_AUCellThresholds)
+    
+### Save threshold info as text (e.g. to edit/modify...)
+trhAssignment <- getThresholdSelected(cells_AUCellThresholds)
+trhAssignment <- signif(trhAssignment, 3) 
+ commentsThresholds <- sapply(cells_AUCellThresholds, function(x) unname(x$aucThr$comment))
+    
+table2edit <- cbind(regulon=names(cells_AUCellThresholds),
+                        threshold=trhAssignment[names(cells_AUCellThresholds)],
+                        nCellsAssigned=lengths(regulonsCells)[names(cells_AUCellThresholds)],
+                        AUCellComment=commentsThresholds[names(cells_AUCellThresholds)],
+                        nGenes=gsub("[\\(g\\)]", "", regmatches(names(cells_AUCellThresholds), gregexpr("\\(.*?\\)", names(cells_AUCellThresholds)))),
+                        clusteringOrder=1:length(cells_AUCellThresholds),
+                        clusterGroup=regulonClusters[names(cells_AUCellThresholds)],
+                        onlyNonDuplicatedExtended=(names(cells_AUCellThresholds) %in% onlyNonDuplicatedExtended(names(cells_AUCellThresholds))),
+                        personalNotes="")
+
+
+thresholds <- as_tibble(table2edit)
+
+
+
+thresholds<-dplyr::select(thresholds, regulon, threshold)
+
+thresholds
+
+
+x<-getAUC(regulonAUC)
+
+dim(x)
+regtib<-as_tibble(x)
+regtib$regulon<- rownames(x)
+
+
+regtib<-pivot_longer(regtib, -regulon, names_to = "cell_name", values_to = "RSS")
+dim(regtib)
+
+regtib<-full_join(regtib, thresholds, by = "regulon")
+
+regtib<-mutate(regtib, binary = ifelse(RSS > threshold, "1", "0"))
+
+x<-getAUC(regulonAUC)
+
+dim(x)
+regtib<-as_tibble(x)
+regtib$regulon<- rownames(x)
+
+meta_tib<-as_tibble(neuron.subset@meta.data, rownames = "cell_name")
+
+dim(meta_tib)
+dim(regtib)
+
+
+plot_tib<-full_join(regtib, meta_tib, by = "cell_name")
+
+dim(plot_tib)
+
+x<-levels(plot_tib$subcluster)
+x
+plot_tib$group <- factor(plot_tib$group, levels = rev(x))
+
+
+
+
+
+plot_tib$plot_var<-paste(plot_tib$subcluster, plot_tib$cell_name) 
+
+
+
+saveRDS(plot_tib, "dataforscenicheatmap_neuron.RDS")
+```
+
+##plot SCENIC binary heatmap
+```{r plot_SCENIC, eval = FALSE}  
+  
+plot_tib<-readRDS("dataforscenicheatmap_neuron.RDS")
+
+require(scales)
+
+# Create vector with levels of object@ident
+identities <- levels(Idents(neuron.subset))
+
+# Create vector of default ggplot2 colors
+my_color_palette <- hue_pal()(length(identities))
+
+
+my_color_palette<-c(my_color_palette, "#FFFFFF")
+my_color_palette
+
+id<-identities
+id<-c(id, "no_cell")
+id
+names(my_color_palette)<-id
+my_color_palette
+
+
+
+plot_tib$binary<-as.numeric(plot_tib$binary)
+plot_tib<-plot_tib %>% group_by(regulon) %>% dplyr::filter(sum(binary) >=50 )
+
+plot_tib<-arrange(plot_tib, regulon)
+
+
+plot_tib<-full_join(plot_tib, my_color_palette)
+
+plot_tib$regulon<-factor(plot_tib$regulon, levels = (unique(plot_tib$regulon)))
+
+plot_tib$subcluster<-as.character(plot_tib$subcluster)
+
+plot_tib<-mutate(plot_tib, colcol = ifelse(binary == 0, "no_cell", subcluster))
+
+
+
+bin_heatmap <- ggplot(data = plot_tib, mapping = aes(x = plot_var, y = regulon, fill = colcol)) +
+  geom_raster()  + scale_fill_manual(values = my_color_palette) +
+theme(plot.background=element_blank(),axis.text.x=element_blank(),
+axis.ticks.x=element_blank()) + 
+ theme(legend.position = "none") +
+facet_grid(~factor(subcluster, levels = (identities)),
+             scales = "free_x", # Let the x axis vary across facets.
+             space = "free_x",  # Let the width of facets vary and force all bars to have the same width.
+             switch = "x")
+
+
+bin_heatmap + theme(panel.spacing = unit(.1, "lines"))
+
+neuron_rss<-readRDS("neuron_RSS.RDS")
+
+rss_tib<-as_tibble(neuron_rss, rownames = "regulon")
+rss_tib
+#write_csv(rss_tib, "Regulon_Specificity_Scores.csv")
+rss_tib<-pivot_longer(rss_tib, -regulon, names_to = "cell_type", values_to = "RSS")
+
+#rss_tib<-rss_tib %>%
+ # arrange((RSS)) %>%
+ # group_by(cell_type) %>%
+ # top_n(n = 5)
+
+rss_tib<-rss_tib %>%
+  group_by(cell_type) %>%
+  arrange(cell_type)
+rss_tib$regulon<-factor(rss_tib$regulon, levels = unique(rss_tib$regulon))
+
+rss_tib$regulon<-str_replace_all(rss_tib$regulon, "\\P{Alnum}", "" )
+rss_tib$regulon<-factor(rss_tib$regulon, levels = unique(rss_tib$regulon))
+  
+
+ggplot(rss_tib, aes(x = RSS, y = regulon, color = RSS, size = RSS)) +
+  geom_point() + theme_bw() + scale_color_viridis() + facet_wrap(~cell_type) + 
+  guides(color=guide_legend(), size = guide_legend()) +
+  theme(panel.border = element_blank())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+regtib<-full_join(regtib, thresholds, by = "regulon")
+
+
+
+
+
+regulonAUC 
+
+x<-getAUC(regulonAUC)
+
+dim(x)
+regtib<-as_tibble(x)
+regtib$regulon<- rownames(x)
+regtib
+
+regtib<-pivot_longer(regtib, -regulon, names_to = "cell_name", values_to = "RSS")
+dim(regtib)
+
+
+
+meta_tib<-as_tibble(neuro.integrated@meta.data, rownames = "cell_name")
+
+dim(meta_tib)
+dim(regtib)
+
+
+plot_tib_2<-full_join(regtib, meta_tib, by = "cell_name")
+
+plot_tib_2
+regulon_by_subcluster<-group_by(plot_tib, subcluster, regulon) %>% summarize(m = mean(RSS))
+
+
+scale_this <- function(x){
+  (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+}
+
+regulon_by_subcluster<-dplyr::mutate(regulon_by_subcluster, scale_dat = scale_this(m))
+
+regulon_by_subcluster$
+
+
+
+neuron_regulon_scaled_heatmap <- ggplot(data = regulon_by_subcluster, mapping = aes(x = subcluster, y = regulon, fill = scale_dat)) +
+  geom_tile(colour="white",size=0.25) +
+  xlab(label = "Sample") +
+  scale_fill_viridis(option="magma", na.value = "grey90") +
+  coord_equal() +
+  theme(plot.background=element_blank()) 
+neuron_regulon_scaled_heatmap
+
+
+
+neuron_kegg_heatmap<-neuron_kegg_heatmap+ theme(axis.text.x=element_text(angle=45, hjust=1))
+neuron_kegg_heatmap
+
+
+
+ComplexHeatmap::Heatmap(regulon_by_subcluster, name="Regulon activity")
+
+
+
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##DE per neuronal cluster
+```{r DE_neurons, eval = FALSE}
+
+neuro.integrated
+
+
+
+
+table(Idents(neuro.integrated), neuro.integrated$stim)
+
+table(neuro.integrated$subcluster, neuro.integrated$stim)
+
+
+
+neuro.integrated.de<-subset(neuro.integrated, idents = c("5. Slc1a3/Apoe","6. Sgcd/Tac1"), invert = T )
+
+
+cell_names<-levels(Idents(neuro.integrated.de))
+cell_names
+
+do_mast <- function(de_obj, subset_name) {
+
+subset_DE_obj<-subset(de_obj, idents=c(subset_name))
+table(Idents(subset_DE_obj))
+
+subset_DE_obj$celltype.stim<- paste(subset_name,subset_DE_obj$stim, sep = "_") #this sets a metadata column where cell names are the cell type identity plus whether they are aged or young
+
+Idents(subset_DE_obj) <- "celltype.stim" #this changes the idents of the object to the celltype.stim value we created in the line above this
+
+print(table(Idents(subset_DE_obj)))
+
+DefaultAssay(subset_DE_obj) <-"RNA"
+subset_DE_obj_MAST<- FindMarkers(subset_DE_obj, ident.1 = paste(subset_name, "Aged", sep = "_") , ident.2 = paste(subset_name, "Young", sep = "_"), verbose = FALSE, test.use = "MAST", only.pos = FALSE, logfc.threshold = 0,latent.vars = c("nCount_RNA","orig.ident"))
+
+return(subset_DE_obj_MAST)}
+
+
+
+
+neuron_DE_res<-list()
+for (i in seq_along(cell_names)) {
+  print(cell_names[[i]])
+  cell_type<-cell_names[[i]]
+  tmp<-do_mast(de_obj = neuro.integrated.de, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  neuron_DE_res[[i]]<-tmp
+  }
+
+
+neuron_DE_res
+
+
+saveRDS(neuron_DE_res, "DE_res_neurons_sample_effect_20210817.RDS")
+
+
+```
+
+#Fig 7A
+```{r Plot_DE_per_cell}
+
+neuron_DE_res<-readRDS( "DE_res_neurons_sample_effect_20210817.RDS")
+
+x<-neuron_DE_res[[28]]
+# Load the "scales" package
+require(scales)
+
+# Create vector with levels of object@ident
+identities <- levels(Idents(neuro.integrated))
+
+# Create vector of default ggplot2 colors
+my_color_palette <- hue_pal()(length(identities))
+
+my_color_palette<-as_tibble(my_color_palette)
+
+my_color_palette$cell_type<-identities
+colnames(my_color_palette)<-c("hex", "cell_type")
+
+#bind data together
+neuro_DE_res_merge<-bind_rows(neuron_DE_res)
+neuro_DE_res_merge<-group_by(neuro_DE_res_merge, cell_type)
+
+colnames(neuro_DE_res_merge)
+
+#write_csv(neuro_DE_res_merge, "Supplementary_Table_8_DE_genes_neurons.csv")
+
+
+
+neuro_DE_res_merge<-mutate(neuro_DE_res_merge, sig = ifelse(p_val_adj < 0.05 & avg_log2FC > .1 | p_val_adj < 0.05 & avg_log2FC < -.1, "Sig", "NS"))
+
+table(neuro_DE_res_merge$sig)
+
+
+neuro_DE_res_merge<-full_join(neuro_DE_res_merge, my_color_palette, by = "cell_type")
+
+neuro_DE_res_merge$p_val_adj
+
+neuro_DE_res_merge<-mutate(neuro_DE_res_merge, col_use = ifelse(sig== "Sig", hex, "dark gray"))
+
+neuro_DE_res_merge<-mutate(neuro_DE_res_merge, updown = ifelse(p_val_adj < 0.05 & avg_log2FC >=0.1, "Upregulated with age", ifelse(p_val_adj < 0.05 & avg_log2FC <= -0.1, "Downregulated with age", "NS")))
+
+neuro_res_table<-table(neuro_DE_res_merge$updown, neuro_DE_res_merge$cell_type)
+x<-as_tibble(neuro_res_table)
+
+neuro_DE_res_merge$sig
+genes_lab<-c("Agrp", "Cartpt", "Cck", "Pomc", "Lepr", "Insr", "Pcsk1", "Pcsk1n", "Pcsk2", "Cpe", "Ece1", "Nts", "Trh", "Pmch", "Scg5", "Gal", "Hcrt")
+
+neuro_DE_res_merge<-mutate(neuro_DE_res_merge, label = ifelse(sig == "Sig" & gene %in% genes_lab, TRUE, FALSE))
+
+
+
+
+
+
+
+
+col_for_plot<-as.character(neuro_DE_res_merge$col_use)
+table(col_for_plot)
+
+
+                                                                   
+
+x<-unique(neuro_DE_res_merge$cell_type)
+x
+
+neuro_DE_res_merge$cell_type <- factor(neuro_DE_res_merge$cell_type, levels = rev(x))
+
+
+#neuro_DE_res_merge<-group_by(neuro_DE_res_merge, cell_type) 
+
+#sigs<-dplyr::filter(neuro_DE_res_merge, sig == "Sig")
+
+#sigs
+
+#top_5<-sigs %>% group_by(cell_type) %>% slice_max(order_by = avg_log2FC, n = 5)
+#bot_5<-sigs %>% group_by(cell_type) %>% slice_min(order_by = avg_log2FC, n = 5)
+
+#five
+
+#five<-dplyr::full_join(top_5, bot_5)
+#five
+
+
+neuro_DE_res_merge<-dplyr::filter(neuro_DE_res_merge, cell_type != "5. Slc1a3/Apoe" & cell_type != "6. Sgcd/Tac1" )
+
+cell_types<-unique(neuro_DE_res_merge$cell_type)
+
+neuro_DE_res_merge_sig<-dplyr::filter(neuro_DE_res_merge, updown != "NS")
+neuro_DE_res_merge_not<-dplyr::filter(neuro_DE_res_merge, updown == "NS")
+
+
+
+col_for_plot<-neuro_DE_res_merge_sig$hex
+length(col_for_plot)
+dim(neuro_DE_res_merge_sig)
+
+
+
+
+neuro_strip<-ggplot(neuro_DE_res_merge, aes(x = avg_log2FC, y = cell_type)) +
+   geom_jitter_rast(data=neuro_DE_res_merge[neuro_DE_res_merge$updown == "NS",],color="dark grey", width = 0.0, height = 0.3, alpha = .50, shape = 1, raster.dpi = 300) +
+geom_jitter_rast(data=neuro_DE_res_merge[neuro_DE_res_merge$updown != "NS",], color=col_for_plot, width = 0.0, height = 0.3, alpha = 1, shape = 1, raster.dpi = 300) +
+geom_text_repel(aes(x=avg_log2FC, y=cell_type, label = gene), data = neuro_DE_res_merge[neuro_DE_res_merge$label == TRUE,], max.overlaps = Inf, fontface = "italic",  min.segment.length = unit(0, 'lines')) + theme_bw() +
+  theme(axis.text.x = element_text(vjust = 0.5, hjust=1), legend.position = "none", axis.line = element_line(colour = "black"),
+panel.border = element_blank()) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+neuro_strip
+```
+
+##GSEA 
+
+```{r GSEA}
+
+
+library(biomaRt)
+library(fgsea)
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+
+pathways.kegg <- gmtPathways("c2.cp.kegg.v7.4.symbols.gmt")
+
+
+
+
+inp<-readRDS("DE_res_neurons_sample_effect_20210817.RDS")
+
+
+set.seed(1000)
+
+
+x<-as_tibble(unique(neuro_DE_res_merge$cell_type))
+colnames(x)<-"cell_type"
+x
+
+
+
+run_gsea <- function(DE_dat, pathway1, cell_name) {
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = DE_dat$gene , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=T)
+DE_dat$MGI.symbol<-as.character(DE_dat$gene)
+DE_dat<-full_join(genesV2, DE_dat, by = "MGI.symbol")
+DE_dat<-dplyr::select(DE_dat, HGNC.symbol, avg_log2FC)
+  res2 <- DE_dat %>% 
+  dplyr::select(HGNC.symbol, avg_log2FC) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(HGNC.symbol) %>% 
+  summarize(stat=mean(avg_log2FC))
+  res2<-arrange(res2, stat)
+  ranks <- deframe(res2)
+  head(ranks, 20)
+  daty<-as_tibble(fgseaMultilevel(pathways=pathway1, stats=ranks))
+  daty$cell_type<-cell_name
+  daty<-dplyr::filter(daty, padj < 0.1)
+  daty<-mutate(daty,leading_edge_count = lengths(daty$leadingEdge))
+  return(daty)
+}
+
+
+neuron_gsea_res_kegg
+
+
+
+neuron_gsea_res_kegg<-list()
+
+for (i in seq_along(inp)) {
+  #print(inp[[i]])
+  inp[[i]]$MGI.symbol<-inp[[i]]$gene
+  cell_type<-inp[[i]]$cell_type[1]
+  print(cell_type)
+  tmp<-run_gsea(inp[[i]], pathways.kegg, cell_type)
+  tmp$cell_type<-cell_type
+  tmp<-as_tibble(tmp, rownames = "gene")
+  print(head(tmp))
+  neuron_gsea_res_kegg[[i]]<-tmp
+  }
+  
+
+x
+
+neuron_gsea_res_kegg
+
+#make giant dataframe of all hallmark results
+neuron_gsea_res_kegg_merge<-bind_rows(neuron_gsea_res_kegg)
+neuron_gsea_res_kegg_merge
+
+neuron_gsea_res_kegg_merge<-full_join(neuron_gsea_res_kegg_merge, x)
+
+
+
+
+levels(neuron_gsea_res_kegg$cell_type)
+
+#"complete"" the dataframe, this will put in NAs for cell_type/description combos that don't already exist
+neuron_gsea_res_kegg_merge<-complete(neuron_gsea_res_kegg_merge, pathway, cell_type)
+
+
+
+neuron_gsea_res_kegg_merge$cell_type<-factor(neuron_gsea_res_kegg_merge$cell_type, levels = rev(x$cell_type))
+
+
+#X: cell_type
+#Y: Description
+#Z: NES
+library(viridis)
+
+
+#neuron_gsea_res_hallmark_merge$cell_type <- factor(neuron_gsea_res_hallmark_merge$cell_type, levels = rev(x))
+
+#neuron_gsea_res_hallmark_merge
+
+neuron_gsea_res_kegg_merge$pathway<-str_replace(neuron_gsea_res_kegg_merge$pathway, "KEGG_", "")
+neuron_gsea_res_kegg_merge$pathway<-str_replace_all(neuron_gsea_res_kegg_merge$pathway, "_", " ")
+neuron_gsea_res_kegg_merge$pathway<-str_to_title(neuron_gsea_res_kegg_merge$pathway)
+
+
+
+#heatmap
+neuron_kegg_heatmap <- ggplot(data = neuron_gsea_res_kegg_merge, mapping = aes(x = pathway, y = cell_type, fill = NES)) +
+  geom_tile(colour="white",size=0.25) +
+  xlab(label = "Sample") +
+  scale_fill_viridis(option="magma", na.value = "grey90") +
+  coord_equal() +
+  theme(plot.background=element_blank()) 
+
+neuron_kegg_heatmap<-neuron_kegg_heatmap+ theme(axis.text.x=element_text(angle=45, hjust=1))
+neuron_kegg_heatmap
+
+
+plot_grid(neuro_strip, neuron_kegg_heatmap, nrow = 2)
+
+
+```
+
