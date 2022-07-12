@@ -1,15 +1,6 @@
-# single_cell_analysis
-single cell analysis of the aging female hypothalamus
+# [Single-cell analysis of the aging female mouse hypothalamus](https://doi.org/10.1038/s43587-022-00246-4)
 
-## 20210917
-microglia figure: code (Rmd, ipynb), csv files, GO_biological_process output, and conda environment (*.yml*)
+Alterations in metabolism, sleep patterns, body composition and hormone status are all key features of aging. While the hypo- thalamus is a well-conserved brain region that controls these homeostatic and survival-related behaviors, little is known about the intrinsic features of hypothalamic aging. Here, we perform single-nuclei RNA sequencing of 40,064 hypothalamic nuclei from young and aged female mice. We identify cell type-specific signatures of aging in neuronal subtypes as well as astrocytes and microglia. We uncover changes in cell types critical for metabolic regulation and body composition and in an area of the hypothalamus linked to cognition. Our analysis also reveals an unexpected female-specific feature of hypothalamic aging: the master regulator of X inactivation, Xist, is elevated with age, particularly in hypothalamic neurons. Moreover, using machine learning, we show that levels of X chromosome genes and Xist itself, can accurately predict cellular age. This study identi- fies critical cell-specific changes of the aging hypothalamus in mammals and uncovers a potential marker of neuronal aging in females.
 
-For all files and PDF output: check https://drive.google.com/drive/folders/1KlRJpUJ8L7HF0REiNB52wu3n0ImBHNty?usp=sharing
+ ![image](https://media.springernature.com/full/springer-static/image/art%3A10.1038%2Fs43587-022-00246-4/MediaObjects/43587_2022_246_Fig1_HTML.png?as=webp)
 
-## 20210920
-sptial_transcriptomics: ipynb and environment.yml
-
-For figures: check https://drive.google.com/drive/folders/1vLzmPdAkaBxXpcqgJgYHqHmv71FBgGlJ?usp=sharing
-
-## 20210921  
-Updated DAM figures and Rmd file - deleted Trem2 from DAM1, deleted Spp1 from DAM2
